@@ -5,7 +5,7 @@ Roblox space flight simulator made for the NASA Space Apps Challenge.
 ## Links
 
 - Video demo: _coming soon_
-- Play on Roblox: _coming soon_
+- Play on Roblox: https://www.roblox.com/games/96287398254447/NASA-SPACE-PROGRAM
 
 ## How to run
 
