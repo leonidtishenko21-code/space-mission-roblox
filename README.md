@@ -32,6 +32,6 @@ The source code is in the `src/` folder and follows the Roblox Studio structure.
 
 ## Team
 
-- Leonid Tishchenko
+- Leonid Tishenko
 - Rostyslav Sakhno
 - Illia Moroz

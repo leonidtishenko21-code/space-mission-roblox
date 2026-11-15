@@ -29,7 +29,7 @@ local SUBTITLE = "An engineering space mission simulator"
 local VERSION_TEXT = "Phase 1  •  v0.1"
 
 -- Your team's names (for the "About" window)
-local TEAM_NICKNAMES = { "Leonid Tishchenko", "Rostyslav Sakhno", "Illia Moroz" }
+local TEAM_NICKNAMES = { "Leonid Tishenko", "Rostyslav Sakhno", "Illia Moroz" }
 
 -- NASA photos for the loading screen. Put the IDs here after uploading them to Roblox:
 -- example: "rbxassetid://1234567890"
