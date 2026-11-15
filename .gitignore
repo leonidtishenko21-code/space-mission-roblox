@@ -16,3 +16,8 @@ Step after all models/
 # Studio lock / backup files
 *.rbxl.lock
 *.rbxlx.lock
+
+# Extra files kept only locally
+worldbuild/
+assets/
+tools/
