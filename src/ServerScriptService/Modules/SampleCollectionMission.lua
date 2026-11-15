@@ -1,36 +1,36 @@
 --[[
-	SampleCollectionMission (ModuleScript, СЕРВЕР) — КРОК 4: місія «Збір екземпляра планети»
-	Місце: ServerScriptService > Modules > SampleCollectionMission
+	SampleCollectionMission (ModuleScript, SERVER) — STEP 4: the "Collect a planet sample" mission
+	Location: ServerScriptService > Modules > SampleCollectionMission
 
-	Зразки — моделі PlanetSample_Moon / PlanetSample_Mars у Workspace (Planets > MoonZone / MarsZone > Samples).
-	Їх можна вільно пересувати й копіювати в Studio: модуль сам знаходить усі моделі з назвою
-	PlanetSample_* (атрибути Planet = "Moon" | "Mars", SampleName) і додає ProximityPrompt
-	«Взяти екземпляр планети» [E].
+	Samples are PlanetSample_Moon / PlanetSample_Mars models in Workspace (Planets > MoonZone / MarsZone > Samples).
+	They can be freely moved and copied in Studio: the module finds every model named
+	PlanetSample_* (attributes Planet = "Moon" | "Mars", SampleName) and adds a ProximityPrompt
+	"Collect planet sample" [E].
 
-	Хід місії:
-	  1) EVA на Місяці / Марсі (КРОК 3) → підійти до світного зразка → утримувати [E]
-	  2) герметичний контейнер із зразком кріпиться до ранця скафандра (PLSS)
-	     статус HUD: «ЗРАЗОК ЗІБРАНО — ПОВЕРНІТЬСЯ В КАПСУЛУ ТА ДОЗАПРАВТЕ РАКЕТУ»
-	  3) повернення в капсулу → контейнер перекладається у вантажний відсік капсули
-	     (модель ракети: SampleCargo, атрибут SampleOnBoard)
-	  4) КРОК 5: дозаправка ISRU і посадка на Землю зі зразком = Sample Return
+	Mission flow:
+	  1) EVA on the Moon / Mars (STEP 3) → walk up to the glowing sample → hold [E]
+	  2) a sealed container with the sample is attached to the spacesuit backpack (PLSS)
+	     HUD status: "SAMPLE COLLECTED — RETURN TO THE CAPSULE AND REFUEL THE ROCKET"
+	  3) back in the capsule → the container is moved to the capsule's cargo bay
+	     (rocket model: SampleCargo, attribute SampleOnBoard)
+	  4) STEP 5: ISRU refuel and landing on Earth with the sample = Sample Return
 
-	Атрибути гравця (читає AstronautClient):
-	  SamplePlanet  = "Moon" | "Mars" | nil — звідки зразок
-	  SampleName    = назва зразка
-	  SampleStowed  = true, коли він у вантажному відсіку капсули
+	Player attributes (read by AstronautClient):
+	  SamplePlanet  = "Moon" | "Mars" | nil — where the sample is from
+	  SampleName    = sample name
+	  SampleStowed  = true when it is in the capsule's cargo bay
 
-	Зразок зникає після збору і з'являється знову через RESPAWN с (для інших гравців / наступних місій).
+	The sample disappears after collection and appears again after RESPAWN s (for other players / later missions).
 ]]
 
 local Players = game:GetService("Players")
 local ServerStorage = game:GetService("ServerStorage")
 
 local Mission = {}
-Mission.notify = nil -- function(player, text, isError) — виставляє FlightServer
+Mission.notify = nil -- function(player, text, isError) — set by FlightServer
 Mission.PROMPT_DISTANCE = 9
 Mission.HOLD_TIME = 1.5
-Mission.RESPAWN = 90 -- с
+Mission.RESPAWN = 90 -- s
 Mission.STATUS_COLLECTED = "SAMPLE COLLECTED — RETURN TO THE CAPSULE AND REFUEL THE ROCKET"
 
 local SUIT_NAME = "NASA_Spacesuit"
@@ -88,14 +88,14 @@ local function weld(a, b)
 	return w
 end
 
--- Герметичний контейнер зі зразком: металевий циліндр, скляне віконце та світний пояс кольору планети.
--- Повертає модель і її корпус (вертикальна вісь контейнера = UpVector корпусу · cf)
+-- Sealed sample container: a metal cylinder, a glass window and a glowing band in the planet's colour.
+-- Returns the model and its body (the container's vertical axis = the body's UpVector · cf)
 local function buildContainer(name, planet, cf, scale)
 	scale = scale or 1
 	local color = COLORS[planet] or Color3.new(1, 1, 1)
 	local model = Instance.new("Model")
 	model.Name = name
-	local axis = CFrame.Angles(0, 0, math.rad(90)) -- вісь циліндра Roblox (X) → вертикаль
+	local axis = CFrame.Angles(0, 0, math.rad(90)) -- Roblox cylinder axis (X) → vertical
 	local body = newPart(model, "Canister", Enum.PartType.Cylinder, Vector3.new(1.5, 0.75, 0.75) * scale,
 		Color3.fromRGB(210, 214, 220), Enum.Material.Metal)
 	body.CFrame = cf * axis
@@ -121,7 +121,7 @@ local function buildContainer(name, planet, cf, scale)
 end
 
 --------------------------------------------------------------------
--- Стан гравця
+-- Player state
 --------------------------------------------------------------------
 local carried = {} -- [player] = { planet, name, container }
 
@@ -133,7 +133,7 @@ function Mission.IsStowed(player)
 	return player:GetAttribute("SampleStowed") == true
 end
 
--- прибрати контейнер з ранця (не чіпає атрибутів)
+-- remove the container from the backpack (does not touch attributes)
 local function dropFromSuit(player)
 	local c = carried[player]
 	if c and c.container and c.container.Parent then
@@ -144,7 +144,7 @@ local function dropFromSuit(player)
 	end
 end
 
--- Політ завершено / гравець вийшов: забуваємо зразок
+-- Flight ended / player left: forget the sample
 function Mission.Reset(player)
 	dropFromSuit(player)
 	carried[player] = nil
@@ -155,7 +155,7 @@ function Mission.Reset(player)
 	end
 end
 
--- Зразок у вантажному відсіку капсули: контейнер приварюється до дна капсули рядом із кріслом
+-- Sample in the capsule's cargo bay: the container is welded to the capsule floor next to the seat
 function Mission.Stow(player)
 	local c = carried[player]
 	if not c or player:GetAttribute("SampleStowed") then
@@ -190,7 +190,7 @@ function Mission.Stow(player)
 end
 
 --------------------------------------------------------------------
--- Збір зразка
+-- Collecting a sample
 --------------------------------------------------------------------
 local function collect(player, sample, prompt)
 	local planet = sample:GetAttribute("Planet")
@@ -213,12 +213,12 @@ local function collect(player, sample, prompt)
 		return
 	end
 
-	-- герметичний контейнер — на правий бік ранця PLSS
+	-- sealed container — on the right side of the PLSS backpack
 	local ps = pack.Size
 	local cf = pack.CFrame * CFrame.new(ps.X / 2 + 0.42, -ps.Y * 0.1, 0)
 	local container, body = buildContainer("SampleContainer", planet, cf, 1)
 	weld(pack, body)
-	container.Parent = suit -- знімається разом ізо скафандром
+	container.Parent = suit -- removed together with the spacesuit
 
 	local name = sample:GetAttribute("SampleName") or "Planet sample"
 	carried[player] = { planet = planet, name = name, container = container }
@@ -226,7 +226,7 @@ local function collect(player, sample, prompt)
 	player:SetAttribute("SampleStowed", false)
 	player:SetAttribute("SamplePlanet", planet)
 
-	-- зразок зникає і через RESPAWN с з'являється знову на тому ж місці
+	-- the sample disappears and after RESPAWN s appears again in the same place
 	local parent = sample.Parent
 	prompt.Enabled = false
 	sample.Parent = ServerStorage
@@ -273,7 +273,7 @@ local function wire(sample)
 	end)
 end
 
--- Запасний шлях (кнопка / тести): взяти найближчий зразок у радіусі дії підказки
+-- Fallback path (button / tests): take the nearest sample within the prompt range
 function Mission.CollectNearest(player)
 	local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 	if not root then
@@ -306,7 +306,7 @@ workspace.DescendantAdded:Connect(function(d)
 	end
 end)
 
--- Повернувся в капсулу зі зразком → перекладаємо у вантажний відсік
+-- Back in the capsule with a sample → move it to the cargo bay
 local function hook(player)
 	player:GetAttributeChangedSignal("InCapsule"):Connect(function()
 		if player:GetAttribute("InCapsule") and carried[player] and not player:GetAttribute("SampleStowed") then
@@ -314,7 +314,7 @@ local function hook(player)
 		end
 	end)
 	player.CharacterRemoving:Connect(function()
-		-- загинув зі зразком на ранці — зразок втрачено (у капсулі він у безпеці)
+		-- died with the sample on the backpack — the sample is lost (in the capsule it is safe)
 		if carried[player] and not player:GetAttribute("SampleStowed") then
 			Mission.Reset(player)
 		end

@@ -1,18 +1,18 @@
 --[[
 	FlightClient (LocalScript) — FlightHUD
-	Місце: StarterPlayer > StarterPlayerScripts > FlightClient
+	Location: StarterPlayer > StarterPlayerScripts > FlightClient
 
-	1. Панель запуску (справа внизу):
-	     в ангарі   — «НА СТАРТОВИЙ МАЙДАНЧИК» (коли ракета зібрана й заправлена)
-	     на старті   — «ЗАПУСК [ENTER]» (відлік 3-2-1) або «Повернути в ангар»
-	2. Польотний пульт (під час польоту решта UI ховається):
-	     висота (км), вертикальна та орбітальна (горизонтальна) швидкість (м/с),
-	     пальне активного ступеня (%), TWR, шкала висоти з ціллю місії,
-	     кнопки «ВІДСТРІЛ СТУПЕНЯ [SPACE]», «СКИНУТИ ОБТІЧНИК [F]», «ЗАВЕРШИТИ».
-	3. Керування: W/S/A/D — нахил ракети відносно камери (надсилається на сервер).
+	1. Launch panel (bottom right):
+	     in the hangar   — "TO THE LAUNCH PAD" (when the rocket is built and fuelled)
+	     on the pad      — "LAUNCH [ENTER]" (countdown 3-2-1) or "Back to hangar"
+	2. Flight console (the rest of the UI is hidden during flight):
+	     altitude (km), vertical and orbital (horizontal) speed (m/s),
+	     active stage fuel (%), TWR, altitude bar with the mission goal,
+	     buttons "SEPARATE STAGE [SPACE]", "JETTISON FAIRING [F]", "END FLIGHT".
+	3. Controls: W/S/A/D — tilt the rocket relative to the camera (sent to the server).
 
-	Дані: висота й швидкість рахуються тут з позиції ракети (плавно, щокадру),
-	пальне/TWR/маса — з атрибутів моделі, які оновлює FlightPhysics на сервері.
+	Data: altitude and speed are computed here from the rocket position (smoothly, every frame),
+	fuel/TWR/mass — from model attributes updated by FlightPhysics on the server.
 ]]
 
 local Players = game:GetService("Players")
@@ -45,7 +45,7 @@ local EDLC = NASAData.EDL
 local reportEvent = remotes:WaitForChild("FlightReport")
 
 --------------------------------------------------------------------
--- 🎨 Стиль
+-- 🎨 Style
 --------------------------------------------------------------------
 local COLOR_BG = Color3.fromRGB(14, 18, 28)
 local COLOR_PANEL = Color3.fromRGB(24, 30, 44)
@@ -101,7 +101,7 @@ local fmt = function(n)
 end
 
 --------------------------------------------------------------------
--- Інтерфейс
+-- Interface
 --------------------------------------------------------------------
 local gui = create("ScreenGui", {
 	Name = "FlightHUD",
@@ -112,7 +112,7 @@ local gui = create("ScreenGui", {
 	Parent = playerGui,
 })
 
--- 1) Панель запуску ------------------------------------------
+-- 1) Launch panel ------------------------------------------
 local launchPanel = create("Frame", {
 	AnchorPoint = Vector2.new(1, 1),
 	Position = UDim2.new(1, -16, 1, -16),
@@ -141,7 +141,7 @@ local secondaryButton = makeButton("", launchPanel, UDim2.new(1, -24, 0, 34))
 secondaryButton.Position = UDim2.fromOffset(12, 104)
 secondaryButton.TextSize = 14
 
--- 2) Польотний пульт ----------------------------------------
+-- 2) Flight console ----------------------------------------
 local flightFrame = create("Frame", {
 	Size = UDim2.fromScale(1, 1),
 	BackgroundTransparency = 1,
@@ -149,7 +149,7 @@ local flightFrame = create("Frame", {
 	Parent = gui,
 })
 
--- Телеметрія (зліва зверху)
+-- Telemetry (top left)
 local telemetry = create("Frame", {
 	Position = UDim2.fromOffset(16, 56),
 	Size = UDim2.fromOffset(280, 382),
@@ -209,7 +209,7 @@ style(fuelBarBg, 6)
 local fuelBar = create("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = COLOR_OK, Parent = fuelBarBg })
 style(fuelBar, 6)
 
--- Шкала висоти з ціллю місії (справа)
+-- Altitude bar with the mission goal (right)
 local LADDER_MAX_KM = F.TARGET_ALTITUDE_KM * 1.3
 local ladder = create("Frame", {
 	AnchorPoint = Vector2.new(1, 0.5),
@@ -265,7 +265,7 @@ local ladderOver = create("TextLabel", {
 	BackgroundTransparency = 1, Text = "", TextColor3 = COLOR_ACCENT, Font = FONT_BOLD, TextSize = 12, Parent = ladder,
 })
 
--- Кнопки (внизу по центру)
+-- Buttons (bottom centre)
 local buttonBar = create("Frame", {
 	AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -20), Size = UDim2.fromOffset(780, 70),
 	BackgroundTransparency = 1, Parent = flightFrame,
@@ -279,7 +279,7 @@ local chuteButton = makeButton("PARACHUTE [P]", buttonBar, UDim2.fromOffset(220,
 chuteButton.Position = UDim2.fromOffset(560, 0)
 local chuteStroke = create("UIStroke", { Color = Color3.fromRGB(255, 170, 40), Thickness = 3, Transparency = 1, Parent = chuteButton })
 
--- Банер сповіщень EDL (по центру): жовтий — час розкривати парашут, червоний — критично, зелений — гальмування
+-- EDL alert banner (centre): yellow — time to deploy the parachute, red — critical, green — braking
 local edlBanner = create("Frame", {
 	AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -168), Size = UDim2.fromOffset(600, 64),
 	BackgroundColor3 = Color3.fromRGB(40, 30, 10), BackgroundTransparency = 0.1, Visible = false, Parent = flightFrame,
@@ -295,11 +295,11 @@ local edlSub = create("TextLabel", {
 	TextColor3 = COLOR_TEXT, Font = FONT, TextSize = 14, Parent = edlBanner,
 })
 
--- Звуки: короткий сигнал телеметрії і свист повітря (вбудовані звуки Roblox)
+-- Sounds: a short telemetry beep and air whistle (built-in Roblox sounds)
 local beepSound = create("Sound", { Name = "TelemetryBeep", SoundId = "rbxasset://sounds/electronicpingshort.wav", Volume = 0.6, Parent = gui })
 local windSound = create("Sound", { Name = "Wind", SoundId = "rbxasset://sounds/action_falling.mp3", Volume = 0, Looped = true, Parent = gui })
 
--- Режими орієнтації (над кнопками ступенів)
+-- Attitude modes (above the stage buttons)
 local attitudeBar = create("Frame", {
 	AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -98), Size = UDim2.fromOffset(620, 34),
 	BackgroundTransparency = 1, Parent = flightFrame,
@@ -316,7 +316,7 @@ local ATTITUDE_BUTTONS = {
 for _, b in ipairs(ATTITUDE_BUTTONS) do
 	b.button = makeButton(b.text, attitudeBar, UDim2.fromOffset(b.width, 34))
 	b.button.TextSize = 13
-end -- обробники натискань — нижче, після setAttitude
+end -- click handlers are below, after setAttitude
 
 local endButton = makeButton("END FLIGHT", flightFrame, UDim2.fromOffset(170, 34), Color3.fromRGB(110, 40, 40))
 endButton.AnchorPoint = Vector2.new(1, 0)
@@ -329,7 +329,7 @@ create("TextLabel", {
 	TextColor3 = COLOR_DIM, Font = FONT, TextSize = 13, TextStrokeTransparency = 0.6, Parent = flightFrame,
 })
 
--- Наукові прилади (зліва внизу, під телеметрією): кнопки лише для встановлених на ракеті приладів
+-- Science instruments (bottom left, under the telemetry): buttons only for instruments fitted on the rocket
 local sciencePanel = create("Frame", {
 	AnchorPoint = Vector2.new(0, 1),
 	Position = UDim2.new(0, 16, 1, -20),
@@ -372,7 +372,7 @@ style(progressBg, 4)
 local progressBar = create("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = Color3.fromRGB(80, 200, 255), Parent = progressBg })
 style(progressBar, 4)
 
--- 3) Відлік і повідомлення ---------------------------------------
+-- 3) Countdown and messages ---------------------------------------
 local countdownLabel = create("TextLabel", {
 	AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.4), Size = UDim2.fromOffset(400, 140),
 	BackgroundTransparency = 1, Text = "", TextColor3 = COLOR_ACCENT, Font = FONT_BOLD, TextSize = 110,
@@ -406,7 +406,7 @@ local function showToast(text, isError)
 end
 
 --------------------------------------------------------------------
--- Стан
+-- State
 --------------------------------------------------------------------
 local mode = "none"          -- "none" | "hangar" | "pad" | "flight"
 local lastFlightEnd = 0
@@ -416,7 +416,7 @@ local savedZoom = nil
 local keys = { W = 0, S = 0, A = 0, D = 0, Q = 0, E = 0, Up = 0, Down = 0 }
 local throttle = 1
 local lastSentThrottle = 1
-local THROTTLE_RATE = 0.6 -- за секунду, поки тримаєш Shift / Ctrl
+local THROTTLE_RATE = 0.6 -- per second while holding Shift / Ctrl
 local lastSentDir = Vector3.zero
 local lastSendTime = 0
 local lastFrame = nil
@@ -449,7 +449,7 @@ local function altitudeZone(km)
 end
 
 --------------------------------------------------------------------
--- Керування в польоті (ContextActionService перехоплює W/A/S/D/Space у персонажа)
+-- Flight controls (ContextActionService takes W/A/S/D/Space from the character)
 --------------------------------------------------------------------
 local KEY_MAP = {
 	[Enum.KeyCode.W] = "W", [Enum.KeyCode.Up] = "W",
@@ -459,7 +459,7 @@ local KEY_MAP = {
 	[Enum.KeyCode.Q] = "Q", [Enum.KeyCode.E] = "E",
 }
 
--- Режими орієнтації (див. FlightPhysics:SetAttitudeMode)
+-- Attitude modes (see FlightPhysics:SetAttitudeMode)
 local MODE_NAMES = {
 	sas = "SAS — stability assist",
 	free = "free rotation",
@@ -480,7 +480,7 @@ local function onAttitude(_, inputState, input)
 		setAttitude(current == "free" and "sas" or "free")
 	elseif input.KeyCode == Enum.KeyCode.R then
 		setAttitude(current == "retrograde" and "sas" or "retrograde")
-	elseif input.KeyCode == Enum.KeyCode.G then -- V зайнята перемиканням камери (AstronautClient)
+	elseif input.KeyCode == Enum.KeyCode.G then -- V is used for the camera toggle (AstronautClient)
 		setAttitude(current == "radial" and "sas" or "radial")
 	end
 	return Enum.ContextActionResult.Sink
@@ -575,9 +575,9 @@ local function unbindFlightControls()
 end
 
 --------------------------------------------------------------------
--- Вхід / вихід з режиму польоту
+-- Entering / leaving flight mode
 --------------------------------------------------------------------
--- Спорядження ракети (для кнопок приладів і енергобалансу) — з креслення RocketDesign
+-- Rocket equipment (for instrument buttons and power balance) — from the RocketDesign blueprint
 local loadout = nil
 local function readLoadout()
 	local ok, raw = pcall(HttpService.JSONDecode, HttpService, player:GetAttribute("RocketDesign") or "")
@@ -602,10 +602,10 @@ end
 
 local function enterFlight()
 	loadout = readLoadout()
-	-- ховаємо UI ангара (HUD, конструктор тощо) — пам'ятаємо, що саме сховали
+	-- hide the hangar UI (HUD, builder, etc.) — remember exactly what was hidden
 	hiddenGuis = {}
 	for _, g in ipairs(playerGui:GetChildren()) do
-		-- KeepInFlight: HUD астронавта (AstronautClient) потрібен саме в польоті
+		-- KeepInFlight: the astronaut HUD (AstronautClient) is needed precisely in flight
 		if g:IsA("ScreenGui") and g ~= gui and g.Enabled and not g:GetAttribute("KeepInFlight") then
 			g.Enabled = false
 			table.insert(hiddenGuis, g)
@@ -617,7 +617,7 @@ local function enterFlight()
 	end
 	savedZoom = { player.CameraMinZoomDistance, player.CameraMaxZoomDistance }
 	player.CameraMaxZoomDistance = 600
-	player.CameraMinZoomDistance = 45 -- віддаляємо камеру, щоб було видно всю ракету
+	player.CameraMinZoomDistance = 45 -- pull the camera back so the whole rocket is visible
 	task.delay(0.5, function()
 		if mode == "flight" then
 			player.CameraMinZoomDistance = 8
@@ -651,10 +651,10 @@ local function exitFlight()
 end
 
 --------------------------------------------------------------------
--- Відлік і запуск
+-- Countdown and launch
 --------------------------------------------------------------------
--- Відлік веде сервер (атрибут ракети Countdown: 5…1, 0 = ПУСК): так його бачать усі гравці,
--- а вежа й дим синхронізовані з ним.
+-- The server runs the countdown (rocket attribute Countdown: 5…1, 0 = LIFT-OFF): so all players see it,
+-- and the tower and smoke are synchronised with it.
 local function startCountdown()
 	if counting or mode ~= "pad" then
 		return
@@ -717,7 +717,7 @@ endButton.Activated:Connect(function()
 end)
 
 --------------------------------------------------------------------
--- Перемикання режимів за атрибутами гравця
+-- Switching modes from player attributes
 --------------------------------------------------------------------
 local function refreshMode()
 	local state = player:GetAttribute("RocketState")
@@ -747,8 +747,8 @@ local function refreshMode()
 		end
 	end
 
-	-- панель запуску
-	-- поки відкритий конструктор, панель ховається: інакше вона накриває його кнопки «Розібрати / Заправити»
+	-- launch panel
+	-- while the builder is open the panel is hidden: otherwise it covers its "Dismantle / Fuel" buttons
 	launchPanel.Visible = (mode == "hangar" or mode == "pad") and player:GetAttribute("BuilderOpen") ~= true
 	if mode == "hangar" then
 		local fuel = player:GetAttribute("RocketFuel") or 0
@@ -776,8 +776,8 @@ for _, name in ipairs({ "RocketState", "RocketBuilt", "InGame", "RocketFuel", "R
 end
 refreshMode()
 
--- КРОК 3 (EVA): поки астронавт на поверхні, W/A/S/D/Space/F керують персонажем, а не ракетою,
--- камера дивиться на астронавта, пульт польоту сховано
+-- STEP 3 (EVA): while the astronaut is on the surface, W/A/S/D/Space/F control the character, not the rocket,
+-- the camera looks at the astronaut, the flight console is hidden
 local evaActive = false
 local function refreshEVA()
 	local want = mode == "flight" and player:GetAttribute("EVA") == true
@@ -794,7 +794,7 @@ local function refreshEVA()
 			camera.CameraSubject = humanoid
 		end
 	elseif mode == "flight" then
-		-- повернувся в капсулу: пульт назад, дросель 0 (не злітаємо самі собою)
+		-- back in the capsule: console back, throttle 0 (we do not take off by ourselves)
 		bindFlightControls()
 		throttle = 0
 		lastSentThrottle = 0
@@ -812,14 +812,14 @@ player:GetAttributeChangedSignal("RocketState"):Connect(function()
 end)
 
 notifyEvent.OnClientEvent:Connect(function(text, isError)
-	-- у ангарі повідомлення показує HUDClient; у польоті його UI схований — показуємо ми
+	-- in the hangar HUDClient shows messages; in flight its UI is hidden — so we show them
 	if mode == "flight" or os.clock() - lastFlightEnd < 3 then
 		showToast(text, isError)
 	end
 end)
 
 --------------------------------------------------------------------
--- Оновлення пульта щокадру
+-- Console update every frame
 --------------------------------------------------------------------
 RunService.RenderStepped:Connect(function()
 	local padRocket = (mode == "pad" or mode == "flight") and findRocket()
@@ -836,9 +836,9 @@ RunService.RenderStepped:Connect(function()
 		camera.CameraSubject = core
 	end
 
-	-- Поворот 6DOF відносно КАМЕРИ (так інтуїтивно з будь-якого ракурсу):
-	--   W/S — ніс від тебе / до тебе (тангаж), A/D — ніс вліво / вправо (рискання),
-	--   Q/E — крен навколо осі ракети. На сервер йде світовий вектор кутової швидкості ω.
+	-- 6DOF rotation relative to the CAMERA (intuitive from any angle):
+	--   W/S — nose away from you / towards you (pitch), A/D — nose left / right (yaw),
+	--   Q/E — roll around the rocket axis. The server receives a world angular velocity vector ω.
 	local camCF = camera.CFrame
 	local nose = core:FindFirstChild("FlightCore") and core.FlightCore.WorldCFrame.UpVector or Vector3.yAxis
 	local dir = camCF.RightVector * -(keys.W - keys.S) + camCF.LookVector * (keys.D - keys.A) + nose * ((keys.E or 0) - (keys.Q or 0))
@@ -852,7 +852,7 @@ RunService.RenderStepped:Connect(function()
 		lastSentThrottle = throttle
 		lastSendTime = now
 	end
-	-- орієнтація: режим і швидкість повороту (залежить від RCS Draco і маси)
+	-- attitude: mode and turn rate (depends on RCS Draco and mass)
 	local attMode = rocket:GetAttribute("AttitudeMode") or "sas"
 	attitudeValue.Text = string.format("%s · %.0f°/s", attMode == "free" and "free" or (attMode == "sas" and "SAS") or (attMode == "retrograde" and "retrograde") or "to planet",
 		rocket:GetAttribute("TurnRateDeg") or 0)
@@ -868,11 +868,11 @@ RunService.RenderStepped:Connect(function()
 	throttleValue.Text = string.format("%d%%", math.floor(throttle * 100 + 0.5))
 	throttleValue.TextColor3 = throttle > 0 and COLOR_TEXT or COLOR_WARN
 
-	-- Телеметрія
+	-- Telemetry
 	local padY = rocket:GetAttribute("PadY") or 0
 	local altKm = math.max(core.Position.Y - padY, 0) * M_PER_STUD / 1000
-	local vel = core.AssemblyLinearVelocity * M_PER_STUD -- м/с
-	-- "вертикаль" — від центру планети (біля Землі — +Y): на боці сфери швидкості теж вірні
+	local vel = core.AssemblyLinearVelocity * M_PER_STUD -- m/s
+	-- "vertical" is away from the planet centre (near Earth — +Y): speeds are correct on the side of a sphere too
 	local localUp = PlanetZoneManager.UpAt(core.Position)
 	local vs = vel:Dot(localUp)
 	local hs = (vel - localUp * vs).Magnitude
@@ -882,7 +882,7 @@ RunService.RenderStepped:Connect(function()
 	vsValue.TextColor3 = vs >= 0 and COLOR_TEXT or COLOR_WARN
 	hsValue.Text = fmt(hs) .. " / " .. fmt(F.ORBITAL_SPEED) .. " m/s"
 	local zone, zoneColor = altitudeZone(altKm)
-	-- біля планети: її назва, тяжіння і висота над її поверхнею
+	-- near a planet: its name, gravity and altitude above its surface
 	local pZone, pId, pF, pAltM = PlanetZoneManager.Locate(core.Position)
 	if pZone and pF > 0.3 then
 		local cfg = PlanetZoneManager.CONFIG[pId]
@@ -907,12 +907,12 @@ RunService.RenderStepped:Connect(function()
 	fuelBar.Size = UDim2.fromScale(math.clamp(fuelPct / 100, 0, 1), 1)
 	fuelBar.BackgroundColor3 = (fuelPct < 10 and COLOR_ERROR) or (fuelPct < 30 and COLOR_WARN) or COLOR_OK
 
-	-- Шкала висоти
+	-- Altitude bar
 	marker.Position = UDim2.new(0.5, 0, ladderY(altKm), 0)
 	apogeeMark.Position = UDim2.new(0.5, 0, ladderY(rocket:GetAttribute("ApogeeKm") or 0), 0)
 	ladderOver.Text = altKm > LADDER_MAX_KM and ("▲ " .. math.floor(altKm) .. " km") or ""
 
-	-- Кнопка відстрілу: підсвічується, коли пальне ступеня = 0% і є що відділяти
+	-- Separation button: highlighted when stage fuel = 0% and there is something to separate
 	local hasNext = rocket:FindFirstChild("Decoupler" .. active) ~= nil
 	if hasNext and fuelPct <= 0.5 then
 		local pulse = (math.sin(now * 8) + 1) / 2
@@ -936,10 +936,10 @@ RunService.RenderStepped:Connect(function()
 		or ("FAIRING: above " .. F.FAIRING_MIN_ALTITUDE_KM .. " km")
 
 	----------------------------------------------------------------
-	-- EDL: сповіщення про оптимальний момент розкриття парашута
-	--   зниження = радіальна швидкість спрямована до планети (vs < −DESCENT_SPEED)
-	--   жовтий: 15 … 3 км над поверхнею · червоний: < 3 км і швидше 30 м/с · зелений: гальмування
-	--   Оптимальний момент — коли висота < 20 км і швидкісний напір ½ρv² менший за ліміт купола.
+	-- EDL: alert for the best moment to deploy the parachute
+	--   descending = the radial velocity points towards the planet (vs < −DESCENT_SPEED)
+	--   yellow: 15 … 3 km above the surface · red: < 3 km and faster than 30 m/s · green: braking
+	--   The best moment is when altitude < 20 km and dynamic pressure ½ρv² is below the canopy limit.
 	----------------------------------------------------------------
 	local surfaceId, surfaceAltM = PlanetZoneManager.Surface(core.Position)
 	local rho = rocket:GetAttribute("AirDensity") or 0
@@ -995,15 +995,15 @@ RunService.RenderStepped:Connect(function()
 		edlStroke.Color = color
 		edlStroke.Transparency = level == "ok" and 0.2 or (0.6 * (1 - pulse))
 		edlBanner.BackgroundColor3 = (level == "ok" and Color3.fromRGB(10, 35, 20)) or (level == "crit" and Color3.fromRGB(50, 10, 10)) or Color3.fromRGB(45, 32, 8)
-		-- звуковий сигнал телеметрії: частіше в критичній зоні
+		-- telemetry beep: more frequent in the critical zone
 		if level ~= "ok" and now - (lastBeep or 0) > (level == "crit" and 1.2 or 3.5) then
 			lastBeep = now
 			beepSound:Play()
 		end
 	end
-	-- кнопка парашута: підсвічується, коли час розкривати
+	-- parachute button: highlighted when it is time to deploy
 	local wantP = level == "warn" or level == "crit"
-	-- P працює завжди: на Землі з парашутом — купол, інакше — автопосадка на майданчик
+	-- P always works: on Earth with a parachute — the canopy, otherwise — autoland to the pad
 	local chuteFirst = surfaceId == "Earth" and hasChute and chuteState == "stowed"
 	chuteButton.Visible = true
 	chuteButton.Text = (autoLand and "🧲 AUTOLAND ✔ [P]")
@@ -1018,7 +1018,7 @@ RunService.RenderStepped:Connect(function()
 		chuteButton.BackgroundColor3 = (chuteState == "open" or autoLand) and Color3.fromRGB(40, 120, 70) or COLOR_BUTTON
 		chuteStroke.Transparency = 1
 	end
-	-- свист повітря за швидкісним напором (у вакуумі тиша)
+	-- air whistle based on dynamic pressure (silence in vacuum)
 	local windVol = math.clamp(q / 30000, 0, 0.8)
 	if windVol > 0.02 then
 		if not windSound.IsPlaying then
@@ -1033,7 +1033,7 @@ RunService.RenderStepped:Connect(function()
 		throttleValue.Text = string.format("AUTO %d%%", math.floor((rocket:GetAttribute("Throttle") or 0) * 100 + 0.5))
 	end
 
-	-- Енергобаланс (Вт) і ціль місії
+	-- Power balance (W) and mission goal
 	local lo = loadout
 	if lo then
 		powerValue.Text = (lo.power > 0 and "+" or "") .. fmt(lo.power) .. " W" .. (lo.battery and " 🔋" or "")
@@ -1053,7 +1053,7 @@ RunService.RenderStepped:Connect(function()
 		zoneValue.TextColor3 = inZone and COLOR_OK or COLOR_TEXT
 	end
 
-	-- Наукові прилади
+	-- Science instruments
 	local anyInstrument = false
 	local busy = rocket:GetAttribute("ScienceBusy") or ""
 	local done = rocket:GetAttribute("ScienceDone") or ""
@@ -1096,7 +1096,7 @@ RunService.RenderStepped:Connect(function()
 end)
 
 --------------------------------------------------------------------
--- Вібрація камери під час роботи двигунів біля Землі (після оновлення камери Roblox)
+-- Camera shake while the engines run near Earth (after the Roblox camera update)
 --------------------------------------------------------------------
 RunService:BindToRenderStep("FlightCameraShake", Enum.RenderPriority.Camera.Value + 1, function()
 	if mode ~= "flight" then
@@ -1110,9 +1110,9 @@ RunService:BindToRenderStep("FlightCameraShake", Enum.RenderPriority.Camera.Valu
 	local amp = 0
 	if rocket:GetAttribute("EngineOn") and (rocket:GetAttribute("Throttle") or 1) > 0.05 then
 		local altKm = math.max(core.Position.Y - (rocket:GetAttribute("PadY") or 0), 0) * M_PER_STUD / 1000
-		amp = math.rad(0.35) * math.clamp(1 - altKm / 15, 0, 1) -- слабшає з висотою (розріджене повітря)
+		amp = math.rad(0.35) * math.clamp(1 - altKm / 15, 0, 1) -- weakens with altitude (thin air)
 	end
-	-- трусить і від набігаючого потоку при швидкому падінні: швидкісний напір q = ½ρv²
+	-- it also shakes from the oncoming airflow in a fast fall: dynamic pressure q = ½ρv²
 	local v = core.AssemblyLinearVelocity.Magnitude * M_PER_STUD
 	local q = 0.5 * (rocket:GetAttribute("AirDensity") or 0) * v * v
 	amp = math.max(amp, math.rad(0.45) * math.clamp(q / 25000, 0, 1))
@@ -1122,7 +1122,7 @@ RunService:BindToRenderStep("FlightCameraShake", Enum.RenderPriority.Camera.Valu
 end)
 
 --------------------------------------------------------------------
--- Звіт місії NASA (після завершення польоту)
+-- NASA mission report (after the flight ends)
 --------------------------------------------------------------------
 local reportFrame = nil
 reportEvent.OnClientEvent:Connect(function(r)

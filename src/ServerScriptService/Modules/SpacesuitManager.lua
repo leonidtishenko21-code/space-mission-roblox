@@ -1,19 +1,19 @@
 --[[
-	SpacesuitManager (ModuleScript, СЕРВЕР) — КРОК 2: скафандр NASA
-	Місце: ServerScriptService > Modules > SpacesuitManager
+	SpacesuitManager (ModuleScript, SERVER) — STEP 2: NASA spacesuit
+	Location: ServerScriptService > Modules > SpacesuitManager
 
-	Програмно збирає скафандр і приварює (WeldConstraint) до персонажа (R15 і R6):
-	  Head       — білий гермошолом + золотистий світловідбивний візор, нашийне кільце,
-	               налобний ліхтарик (SpotLight, клавіша L)
-	  UpperTorso — ранець життєзабезпечення PLSS з індикатором O₂ / енергії,
-	               нагрудний пульт DCM, мікродвигуни (ParticleEmitter "JetFX")
-	Усі деталі: Massless, без зіткнень — на ходьбу й фізику ракети не впливають.
+	Builds the spacesuit in code and welds it (WeldConstraint) to the character (R15 and R6):
+	  Head       — white pressure helmet + gold reflective visor, neck ring,
+	               headlamp (SpotLight, key L)
+	  UpperTorso — PLSS life-support backpack with an O₂ / power indicator,
+	               DCM chest control unit, thrusters (ParticleEmitter "JetFX")
+	All parts: Massless, no collisions — they do not affect walking or rocket physics.
 
 	API: Equip(player) / Unequip(player) / IsEquipped(player) / ToggleLight(player) / SetJets(player, on)
-	Атрибути гравця: SuitEquipped, SuitO2 (0–100), SuitPower (0–100), SuitLight, SuitJets
+	Player attributes: SuitEquipped, SuitO2 (0–100), SuitPower (0–100), SuitLight, SuitJets
 
-	Життєзабезпечення: у капсулі (InCapsule) запаси поповнюються, назовні — витрачаються.
-	[ГРА] O₂ справжнього PLSS вистачає на ~8 год; у грі — O2_MINUTES хвилин, смерті немає, лише попередження.
+	Life support: inside the capsule (InCapsule) supplies refill, outside they are used up.
+	[GAME] A real PLSS has O₂ for ~8 h; in the game — O2_MINUTES minutes, no death, only a warning.
 ]]
 
 local Players = game:GetService("Players")
@@ -22,10 +22,10 @@ local RunService = game:GetService("RunService")
 local SpacesuitManager = {}
 
 SpacesuitManager.SUIT_NAME = "NASA_Spacesuit"
-SpacesuitManager.notify = nil -- function(player, text, isError) — виставляє FlightServer
+SpacesuitManager.notify = nil -- function(player, text, isError) — set by FlightServer
 
 local O2_MINUTES = 10
-local LIGHT_DRAIN = 0.35 -- % енергії за секунду
+local LIGHT_DRAIN = 0.35 -- % of power per second
 local JET_DRAIN = 1.5
 local BASE_DRAIN = 0.08
 
@@ -38,7 +38,7 @@ local NASA_BLUE = Color3.fromRGB(11, 61, 145)
 local suits = {} -- [player] = { folder, light, lens, jets = {}, labels = {}, warned = {} }
 
 --------------------------------------------------------------------
--- Деталі
+-- Parts
 --------------------------------------------------------------------
 local function newPart(folder, name, shape, size, color, material)
 	local p = Instance.new("Part")
@@ -59,7 +59,7 @@ local function newPart(folder, name, shape, size, color, material)
 	return p
 end
 
--- ставимо деталь відносно частини тіла і приварюємо
+-- place a part relative to a body part and weld it
 local function attach(p, bodyPart, offset)
 	p.CFrame = bodyPart.CFrame * offset
 	local w = Instance.new("WeldConstraint")
@@ -69,7 +69,7 @@ local function attach(p, bodyPart, offset)
 	return p
 end
 
--- індикатор O₂ / енергії на грані деталі
+-- O₂ / power indicator on a face of the part
 local function addDisplay(p, face, pixelsPerStud)
 	local gui = Instance.new("SurfaceGui")
 	gui.Name = "SuitDisplay"
@@ -124,7 +124,7 @@ local function addJet(pack, x, packSize)
 
 	local att = Instance.new("Attachment")
 	att.Name = "JetPoint"
-	att.Position = Vector3.new(x, -packSize.Y / 2 - 0.25, 0.1) -- +Y атачмента = вгору ранця
+	att.Position = Vector3.new(x, -packSize.Y / 2 - 0.25, 0.1) -- the attachment's +Y = backpack up
 	att.Parent = pack
 
 	local fx = Instance.new("ParticleEmitter")
@@ -138,14 +138,14 @@ local function addJet(pack, x, packSize)
 	fx.Rate = 70
 	fx.Speed = NumberRange.new(10, 16)
 	fx.SpreadAngle = Vector2.new(8, 8)
-	fx.EmissionDirection = Enum.NormalId.Bottom -- струмінь вниз
+	fx.EmissionDirection = Enum.NormalId.Bottom -- jet points down
 	fx.Enabled = false
 	fx.Parent = att
 	return fx
 end
 
 --------------------------------------------------------------------
--- Оновлення індикаторів
+-- Indicator updates
 --------------------------------------------------------------------
 local function refreshDisplays(player)
 	local suit = suits[player]
@@ -163,7 +163,7 @@ local function refreshDisplays(player)
 end
 
 --------------------------------------------------------------------
--- Надягти / зняти
+-- Put on / take off
 --------------------------------------------------------------------
 function SpacesuitManager.IsEquipped(player)
 	local suit = suits[player]
@@ -186,18 +186,18 @@ function SpacesuitManager.Equip(player)
 	folder.Parent = character
 	local suit = { folder = folder, jets = {}, labels = {}, warned = {} }
 
-	-- ШОЛОМ ------------------------------------------------------
+	-- HELMET ------------------------------------------------------
 	local hs = head.Size
 	local d = math.clamp(math.max(hs.Y, hs.Z) * 1.9, 1.8, 3)
 	attach(newPart(folder, "Helmet", Enum.PartType.Ball, Vector3.one * d, WHITE), head, CFrame.new(0, 0.08 * d, 0))
-	-- візор: золота сфера трохи виступає спереду (золоте напилення відбиває сонячне ІЧ та УФ)
+	-- visor: a gold sphere sticking out a little at the front (the gold coating reflects solar IR and UV)
 	local visor = newPart(folder, "GoldVisor", Enum.PartType.Ball, Vector3.one * d * 0.86, GOLD, Enum.Material.Metal)
 	visor.Reflectance = 0.35
 	attach(visor, head, CFrame.new(0, 0.1 * d, -0.12 * d))
 	attach(newPart(folder, "NeckRing", Enum.PartType.Cylinder, Vector3.new(0.25, d * 0.78, d * 0.78), GREY, Enum.Material.Metal),
 		head, CFrame.new(0, -0.4 * d, 0) * CFrame.Angles(0, 0, math.rad(90)))
 
-	-- налобний ліхтарик
+	-- headlamp
 	local lamp = newPart(folder, "HeadLamp", nil, Vector3.new(0.4, 0.28, 0.3), DARK, Enum.Material.Metal)
 	attach(lamp, head, CFrame.new(0.24 * d, 0.36 * d, -0.3 * d))
 	local lens = newPart(folder, "HeadLampLens", nil, Vector3.new(0.28, 0.18, 0.05), Color3.fromRGB(120, 120, 110), Enum.Material.SmoothPlastic)
@@ -214,18 +214,18 @@ function SpacesuitManager.Equip(player)
 	light.Parent = lamp
 	suit.light, suit.lens = light, lens
 
-	-- РАНЕЦЬ PLSS ------------------------------------------------
+	-- PLSS BACKPACK ----------------------------------------------
 	local ts = torso.Size
 	local packSize = Vector3.new(ts.X * 0.95, ts.Y * 1.25, 0.9)
 	local pack = newPart(folder, "PLSS_Backpack", nil, packSize, WHITE)
-	attach(pack, torso, CFrame.new(0, ts.Y * 0.05, ts.Z / 2 + packSize.Z / 2)) -- +Z = спина
+	attach(pack, torso, CFrame.new(0, ts.Y * 0.05, ts.Z / 2 + packSize.Z / 2)) -- +Z = back
 	local stripe = newPart(folder, "PLSS_Stripe", nil, Vector3.new(packSize.X + 0.02, 0.18, packSize.Z + 0.02), NASA_BLUE)
 	attach(stripe, pack, CFrame.new(0, packSize.Y * 0.32, 0))
 	for _, side in ipairs({ -1, 1 }) do
 		attach(newPart(folder, "O2Tank", Enum.PartType.Cylinder, Vector3.new(packSize.Y * 0.85, 0.42, 0.42), GREY, Enum.Material.Metal),
 			pack, CFrame.new(side * packSize.X * 0.3, 0, packSize.Z / 2 + 0.18) * CFrame.Angles(0, 0, math.rad(90)))
 	end
-	-- індикатор на верху ранця (бачить камера ззаду) та нагрудний пульт DCM
+	-- indicator on top of the backpack (seen by the camera from behind) and the DCM chest unit
 	local screen = newPart(folder, "PLSS_Display", nil, Vector3.new(packSize.X * 0.7, 0.45, 0.06), DARK)
 	attach(screen, pack, CFrame.new(0, packSize.Y * 0.12, packSize.Z / 2 + 0.42))
 	table.insert(suit.labels, addDisplay(screen, Enum.NormalId.Back, 80))
@@ -233,7 +233,7 @@ function SpacesuitManager.Equip(player)
 	attach(dcm, torso, CFrame.new(0, -ts.Y * 0.05, -ts.Z / 2 - 0.15))
 	table.insert(suit.labels, addDisplay(dcm, Enum.NormalId.Front, 70))
 
-	-- мікродвигуни ранця (видимі всім; тягу додасть КРОК 3)
+	-- backpack thrusters (visible to everyone; STEP 3 adds the thrust)
 	for _, side in ipairs({ -1, 1 }) do
 		table.insert(suit.jets, addJet(pack, side * packSize.X * 0.32, packSize))
 	end
@@ -268,7 +268,7 @@ function SpacesuitManager.Unequip(player)
 end
 
 --------------------------------------------------------------------
--- Ліхтарик і мікродвигуни
+-- Headlamp and thrusters
 --------------------------------------------------------------------
 local function setLight(player, on)
 	local suit = suits[player]
@@ -306,7 +306,7 @@ function SpacesuitManager.SetJets(player, on)
 end
 
 --------------------------------------------------------------------
--- Життєзабезпечення (раз на секунду)
+-- Life support (once per second)
 --------------------------------------------------------------------
 local function warnOnce(player, suit, key, text)
 	if not suit.warned[key] and SpacesuitManager.notify then
@@ -331,7 +331,7 @@ RunService.Heartbeat:Connect(function(dt)
 		local o2 = player:GetAttribute("SuitO2") or 100
 		local power = player:GetAttribute("SuitPower") or 100
 		if player:GetAttribute("InCapsule") then
-			-- капсула заряджає ранець і поповнює кисень
+			-- the capsule charges the backpack and refills the oxygen
 			o2 = math.min(100, o2 + 5 * step)
 			power = math.min(100, power + 3 * step)
 			suit.warned = {}
@@ -359,7 +359,7 @@ RunService.Heartbeat:Connect(function(dt)
 	end
 end)
 
--- Новий персонаж (респавн) — скафандра на ньому немає
+-- New character (respawn) — it has no spacesuit
 local function hook(player)
 	player.CharacterRemoving:Connect(function()
 		SpacesuitManager.Unequip(player)

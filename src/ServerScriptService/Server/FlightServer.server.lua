@@ -1,24 +1,24 @@
 --[[
 	FlightServer (Script)
-	Місце: ServerScriptService > Server > FlightServer
+	Location: ServerScriptService > Server > FlightServer
 
-	Зв'язує все докупи (Фаза 2–3 — політ і наукова місія):
-	  ангар ──ToPad──▶ стартовий стіл ──Ignite (відлік T−5)──▶ політ ──(удар / завершення)──▶ звіт ▶ ангар
+	Ties everything together (Phase 2–3 — flight and science mission):
+	  hangar ──ToPad──▶ launch table ──Ignite (countdown T−5)──▶ flight ──(impact / end)──▶ report ▶ hangar
 	             ◀──ToHangar──
 
-	Відлік на сервері (бачать усі гравці): T−2 відводиться пускова вежа, T−0 — запалювання,
-	дим та іскри з газовідвідного жолоба (LaunchSite).
+	The countdown runs on the server (all players see it): at T−2 the launch tower swings away, at T−0 — ignition,
+	smoke and sparks from the flame trench (LaunchSite).
 
 	RemoteEvents (ReplicatedStorage > Remotes):
 	  LaunchRocket(action)   — "ToPad" | "ToHangar" | "Ignite" | "End"
-	  FlightInput(dir)       — Vector3 (X, 0, Z): куди нахиляти ракету (W/S/A/D відносно камери)
-	  TriggerStage()         — відстріл ступеня
-	  JettisonFairing()      — скинути обтічник
+	  FlightInput(dir)       — Vector3 (X, 0, Z): where to tilt the rocket (W/S/A/D relative to the camera)
+	  TriggerStage()         — stage separation
+	  JettisonFairing()      — jettison the fairing
 	  ScienceAction(kind)    — "theodolite" | "scan" | "drill" (ScienceMissionController)
-	  FlightReport (сервер → клієнт) — підсумок місії для вікна звіту
+	  FlightReport (server → client) — mission summary for the report window
 
-	Атрибут гравця RocketState: "Hangar" | "OnPad" | "Flight" (дублює State моделі для клієнта).
-	Клієнту не довіряємо: усі перевірки стану — тут.
+	Player attribute RocketState: "Hangar" | "OnPad" | "Flight" (mirrors the model's State for the client).
+	The client is not trusted: all state checks happen here.
 ]]
 
 local Players = game:GetService("Players")
@@ -45,10 +45,10 @@ local SampleMission = require(serverModules:WaitForChild("SampleCollectionMissio
 local ISRU = require(serverModules:WaitForChild("PlanetaryRefuelSystem"))
 
 local F = NASAData.Flight
-local COUNTDOWN = 5               -- с: відлік T−5 … T−0
-local TOWER_AT = 2                -- на T−2 відводимо вежу
-local FUEL_BONUS = 5000           -- [ГРА] $ максимум за економію палива (пропорційно залишку)
-local SAMPLE_RETURN_REWARD = 100000 -- [ГРА] $ за доставлений на Землю зразок (Sample Return Mission)
+local COUNTDOWN = 5               -- s: countdown T−5 … T−0
+local TOWER_AT = 2                -- the tower swings away at T−2
+local FUEL_BONUS = 5000           -- [GAME] max $ for saving fuel (proportional to what is left)
+local SAMPLE_RETURN_REWARD = 100000 -- [GAME] $ for a sample delivered to Earth (Sample Return Mission)
 
 --------------------------------------------------------------------
 -- Remotes
@@ -74,8 +74,8 @@ local attitudeEvent = getRemote("AttitudeMode")
 local edlEvent = getRemote("EDLAction")
 local notifyEvent = getRemote("Notify")
 local suitEvent = getRemote("SpacesuitAction") -- "light" | "jets" (bool) | "remove"
--- КРОК 5: EVAAction "isru" — кнопка «⛽ ISRU» у HUD (дозаправка на планеті)
-local evaEvent = getRemote("EVAAction")        -- "exit" (КРОК 3: [E] — вийти з капсули)
+-- STEP 5: EVAAction "isru" — the "⛽ ISRU" button in the HUD (refuelling on a planet)
+local evaEvent = getRemote("EVAAction")        -- "exit" (STEP 3: [E] — leave the capsule)
 
 local function notify(player, text, isError)
 	notifyEvent:FireClient(player, text, isError == true)
@@ -91,11 +91,11 @@ local fmt = function(n)
 end
 
 --------------------------------------------------------------------
--- Допоміжне
+-- Helpers
 --------------------------------------------------------------------
 local flights = {}       -- [player] = FlightPhysics
-local counting = {}      -- [player] = true під час відліку
-local lastCommand = {}   -- [player] = os.clock() (захист від спаму кнопок)
+local counting = {}      -- [player] = true during the countdown
+local lastCommand = {}   -- [player] = os.clock() (button spam protection)
 ISRU.getFlight = function(player)
 	return flights[player]
 end
@@ -121,7 +121,7 @@ local function setState(player, model, state)
 end
 
 local function teleport(player, cframe)
-	-- спершу висаджуємо з крісла: інакше PivotTo потягне за собою всю ракету
+	-- unseat first: otherwise PivotTo would drag the whole rocket along
 	CapsuleSeatSystem.Release(player)
 	local character = player.Character
 	if character and character.PrimaryPart then
@@ -129,7 +129,7 @@ local function teleport(player, cframe)
 	end
 end
 
--- Оглядовий майданчик: перед стартовим столом, обличчям до ракети
+-- Viewing platform: in front of the launch table, facing the rocket
 local function viewingSpot()
 	local base = RocketAssembler.GetLaunchBase()
 	local pos = Vector3.new(base.X, 5, base.Z - 55)
@@ -159,7 +159,7 @@ local function designOf(player)
 	return ok and RocketMath.Sanitize(raw) or nil
 end
 
--- Скільки палива лишилось у ракеті (частка від заправленого на старті)
+-- How much fuel is left in the rocket (fraction of what was loaded at launch)
 local function fuelLeftFraction(flight)
 	local left = 0
 	for _, g in ipairs(flight.model:GetChildren()) do
@@ -171,9 +171,9 @@ local function fuelLeftFraction(flight)
 end
 
 --------------------------------------------------------------------
--- Звіт місії: оцінка інженерної ефективності
---   +30 космос (≥100 км) · +15 за кожен набір наукових даних · +15 посадка в кратері
---   +до 10 за залишок палива · −20 аварія
+-- Mission report: engineering efficiency score
+--   +30 space (≥100 km) · +15 per science data set · +15 landing in the crater
+--   +up to 10 for remaining fuel · −20 crash
 --------------------------------------------------------------------
 local END_TITLES = {
 	crash = "💥 The rocket crashed",
@@ -183,7 +183,7 @@ local END_TITLES = {
 	manual = "Flight ended",
 }
 
--- $ за висоту (апогей) — нараховується після БУДЬ-якого польоту, успішного чи ні
+-- $ for altitude (apogee) — paid after ANY flight, successful or not
 local function altitudePayOf(flight)
 	return math.floor(flight.apogeeM / 1000 * F.ALTITUDE_PAY_PER_KM / 100 + 0.5) * 100
 end
@@ -214,23 +214,23 @@ local function buildReport(player, flight, reason)
 	score = math.clamp(score, 0, 100)
 	local grade = (score >= 85 and "A") or (score >= 65 and "B") or (score >= 40 and "C") or "D"
 
-	-- 🏆 КРОК 5: Sample Return Mission — м'яка посадка на Землю зі зразком у вантажному відсіку
+	-- 🏆 STEP 5: Sample Return Mission — soft landing on Earth with the sample in the cargo bay
 	local sampleReturn = reason == "landed" and not flight.hardLanding
 		and player:GetAttribute("SamplePlanet") ~= nil and player:GetAttribute("SampleStowed") == true
 	local sampleReward = 0
 	if sampleReturn then
-		score = 100 -- максимальний рейтинг
+		score = 100 -- maximum rating
 		grade = "S"
 		sampleReward = SAMPLE_RETURN_REWARD
 	end
 
-	-- бонус за економію палива — лише якщо місія щось дала (космос або наука)
+	-- fuel saving bonus — only if the mission achieved something (space or science)
 	local fuelBonus = 0
 	if reason ~= "crash" and (reachedSpace or #science.log > 0) then
 		fuelBonus = math.floor(FUEL_BONUS * fuelLeft / 100 + 0.5) * 100
 	end
 
-	-- оплата за висоту: $ за кожен км апогею — ЗАВЖДИ повна, навіть після аварії
+	-- altitude pay: $ per km of apogee — ALWAYS in full, even after a crash
 	local altitudePay = altitudePayOf(flight)
 
 	return {
@@ -257,7 +257,7 @@ local function buildReport(player, flight, reason)
 		altitudePay = altitudePay,
 		score = score,
 		grade = grade,
-		-- КРОК 4: зразок планети (переможне вікно Sample Return — КРОК 5)
+		-- STEP 4: planet sample (the Sample Return victory window — STEP 5)
 		samplePlanet = player:GetAttribute("SamplePlanet"),
 		sampleName = player:GetAttribute("SampleName"),
 		sampleOnBoard = player:GetAttribute("SampleStowed") == true,
@@ -265,22 +265,22 @@ local function buildReport(player, flight, reason)
 end
 
 --------------------------------------------------------------------
--- Політ
+-- Flight
 --------------------------------------------------------------------
 local function onEnded(player, flight, reason)
 	flights[player] = nil
-	EVA.End(player) -- астронавт на поверхні: прибираємо люк і атрибути EVA
-	ISRU.End(player) -- шланг дозаправки
+	EVA.End(player) -- astronaut on the surface: remove the hatch and EVA attributes
+	ISRU.End(player) -- refuelling hose
 	Science.Leave(flight)
-	EDL.Cleanup(flight) -- маяк майданчика та купол
+	EDL.Cleanup(flight) -- pad beacon and canopy
 	local model = flight.model
 
-	-- Гравець сам завершив політ, жодного разу не сівши: автореспавн, бюджет — як на момент старту
-	-- (нагороди цього польоту скасовуються, звіт не показуємо)
+	-- The player ended the flight without ever landing: auto-respawn, budget as it was at launch
+	-- (this flight's rewards are cancelled, no report is shown)
 	local aborted = reason == "manual" and not flight.landedOnSurface
 	local abortPay = aborted and altitudePayOf(flight) or 0
 	if aborted and player.Parent and flight.budgetAtLaunch then
-		player:SetAttribute("Budget", flight.budgetAtLaunch + abortPay) -- бюджет старту + оплата за висоту
+		player:SetAttribute("Budget", flight.budgetAtLaunch + abortPay) -- launch budget + altitude pay
 	end
 
 	if reason ~= "lost" and not aborted and player.Parent then
@@ -305,19 +305,19 @@ local function onEnded(player, flight, reason)
 	end
 
 	CapsuleSeatSystem.Release(player)
-	SampleMission.Reset(player) -- звіт уже врахував зразок; наступна місія — з порожнім контейнером
+	SampleMission.Reset(player) -- the report has counted the sample; the next mission starts with an empty container
 	if model.Parent then
 		model:Destroy()
 	end
 	LaunchSite.Release(player.UserId)
 	task.delay(2, LaunchSite.ResetTower)
 	if player.Parent then
-		-- Ракета витрачена: гроші та пальне не повертаються (на відміну від розбирання в ангарі)
+		-- The rocket is spent: money and fuel are not returned (unlike dismantling in the hangar)
 		clearRocket(player)
 		player.ReplicationFocus = nil
 		if aborted then
 			SpacesuitManager.Unequip(player)
-			player:LoadCharacter() -- автореспавн
+			player:LoadCharacter() -- auto-respawn
 			task.delay(1.5, notify, player, string.format("Flight aborted without landing. You respawned: budget restored to $%s + $%s altitude pay (apogee %.1f km).",
 				fmt(flight.budgetAtLaunch or 0), fmt(abortPay), flight.apogeeM / 1000), false)
 			return
@@ -330,19 +330,19 @@ local function onEnded(player, flight, reason)
 end
 
 local function startFlight(player, model)
-	RocketAssembler.Unlock(model) -- зняття блокування на старт
+	RocketAssembler.Unlock(model) -- release the launch lock
 	setState(player, model, "Flight")
-	player.ReplicationFocus = model.PrimaryPart -- стрімінг вантажить світ навколо ракети, а не персонажа
+	player.ReplicationFocus = model.PrimaryPart -- streaming loads the world around the rocket, not the character
 
 	local flight
 	flight = FlightPhysics.new(model, {
-		gravityVector = PlanetZoneManager.GravityVector, -- біля Місяця / Марса — сферичне тяжіння до центру
-		edl = EDL.Step,                                  -- парашут і автопосадка
+		gravityVector = PlanetZoneManager.GravityVector, -- near the Moon / Mars — spherical gravity to the centre
+		edl = EDL.Step,                                  -- parachute and autoland
 		notify = function(text, isError)
 			notify(player, text, isError)
 		end,
-		density = PlanetZoneManager.AirDensity,  -- розріджена атмосфера Марса (опір під час посадки)
-		surface = Science.SurfaceBelow,          -- посадка на планету не завершує політ
+		density = PlanetZoneManager.AirDensity,  -- thin Mars atmosphere (drag during landing)
+		surface = Science.SurfaceBelow,          -- landing on a planet does not end the flight
 		onBurnout = function(_, k)
 			if model:FindFirstChild("Decoupler" .. k) then
 				notify(player, "Stage " .. k .. " is out of fuel — separate it [SPACE]!", false)
@@ -353,7 +353,7 @@ local function startFlight(player, model)
 		onTargetReached = function()
 			player:SetAttribute("Budget", (player:GetAttribute("Budget") or 0) + F.MISSION_REWARD)
 			notify(player, "🎉 Kármán line (" .. F.TARGET_ALTITUDE_KM .. " km) crossed — you are in space! +$" .. fmt(F.MISSION_REWARD), false)
-			-- вихід у космос: астронавт надягає скафандр NASA
+			-- reaching space: the astronaut puts on the NASA spacesuit
 			if SpacesuitManager.Equip(player) then
 				task.delay(2.5, notify, player, "🧑‍🚀 NASA spacesuit sealed. [L] — headlamp, [V] — cockpit view.", false)
 			end
@@ -386,14 +386,14 @@ local function startFlight(player, model)
 		end
 	end
 	flight.startFuel = fuel
-	flight.budgetAtLaunch = player:GetAttribute("Budget") or 0 -- для автореспавну без посадки
+	flight.budgetAtLaunch = player:GetAttribute("Budget") or 0 -- for the auto-respawn without landing
 	EDL.Attach(flight)
 	flights[player] = flight
 	flight:Start()
 	notify(player, "Liftoff! W/S/A/D — tilt the rocket, SPACE — stage separation. 🎯 Target: the lunar crater at 100 km.", false)
 end
 
--- Відлік T−5 … T−0 (атрибут моделі Countdown бачать усі клієнти)
+-- Countdown T−5 … T−0 (the model's Countdown attribute is visible to all clients)
 local function runCountdown(player, model)
 	counting[player] = true
 	LaunchSite.SetVenting(true)
@@ -425,7 +425,7 @@ local function runCountdown(player, model)
 end
 
 --------------------------------------------------------------------
--- Команди гравця
+-- Player commands
 --------------------------------------------------------------------
 launchEvent.OnServerEvent:Connect(function(player, action)
 	if type(action) ~= "string" then
@@ -456,7 +456,7 @@ launchEvent.OnServerEvent:Connect(function(player, action)
 		LaunchSite.ResetTower()
 		RocketAssembler.LaunchPadSpawn(model, fuel)
 		setState(player, model, "OnPad")
-		-- КРОК 1: астронавт сідає в крісло капсули (старі ракети без крісла — оглядовий майданчик)
+		-- STEP 1: the astronaut sits in the capsule seat (old rockets without a seat — viewing platform)
 		local seated = CapsuleSeatSystem.Seat(player, model)
 		if not seated then
 			teleport(player, viewingSpot())
@@ -491,18 +491,18 @@ end)
 
 inputEvent.OnServerEvent:Connect(function(player, dir, throttle)
 	local flight = flights[player]
-	if not flight or typeof(dir) ~= "Vector3" or dir ~= dir then -- dir ~= dir відкидає NaN
+	if not flight or typeof(dir) ~= "Vector3" or dir ~= dir then -- dir ~= dir rejects NaN
 		return
 	end
-	-- поки астронавт назовні (EVA), керувати ракетою нікому
+	-- while the astronaut is outside (EVA), nobody controls the rocket
 	if EVA.IsOut(player) then
 		return
 	end
-	-- під час автопосадки дроселем керує EDL, а не гравець
+	-- during autoland EDL controls the throttle, not the player
 	if type(throttle) == "number" and throttle == throttle and not (flight.edl and flight.edl.autoLand) then
 		flight:SetThrottle(throttle)
 	end
-	-- dir — запит повороту (світова вісь × сила); обмежуємо силу
+	-- dir — turn request (world axis × strength); limit the strength
 	if dir.Magnitude > 1.8 then
 		dir = dir.Unit * 1.8
 	end
@@ -532,7 +532,7 @@ fairingEvent.OnServerEvent:Connect(function(player)
 	notify(player, message, not ok)
 end)
 
--- EDL: парашут / автопосадка (клавіша P)
+-- EDL: parachute / autoland (key P)
 edlEvent.OnServerEvent:Connect(function(player, action)
 	local flight = flights[player]
 	if not flight or action ~= "parachute" or EVA.IsOut(player) then
@@ -547,7 +547,7 @@ edlEvent.OnServerEvent:Connect(function(player, action)
 	notify(player, message, not ok)
 end)
 
--- Режим орієнтації: "sas" | "free" | "retrograde" | "radial" (FlightPhysics перевіряє значення)
+-- Attitude mode: "sas" | "free" | "retrograde" | "radial" (FlightPhysics validates the value)
 attitudeEvent.OnServerEvent:Connect(function(player, mode)
 	local flight = flights[player]
 	if flight and type(mode) == "string" then
@@ -555,14 +555,14 @@ attitudeEvent.OnServerEvent:Connect(function(player, mode)
 	end
 end)
 
--- Скафандр: ліхтарик [L], мікродвигуни (візуально), зняття [K] — лише на Землі, не в польоті
+-- Spacesuit: headlamp [L], thrusters (visual), take off [K] — only on Earth, not in flight
 local lastSuitCommand = {}
 suitEvent.OnServerEvent:Connect(function(player, action, value)
 	if type(action) ~= "string" or not SpacesuitManager.IsEquipped(player) then
 		return
 	end
 	if action == "jets" then
-		-- двигуни працюють лише поза кріслом
+		-- the thrusters work only outside the seat
 		SpacesuitManager.SetJets(player, value == true and not player:GetAttribute("InCapsule"))
 		return
 	end
@@ -584,7 +584,7 @@ suitEvent.OnServerEvent:Connect(function(player, action, value)
 	end
 end)
 
--- КРОК 3: вихід з капсули [E] (усі перевірки — EVAExitController.CanExit)
+-- STEP 3: leaving the capsule [E] (all checks — EVAExitController.CanExit)
 local lastEvaCommand = {}
 evaEvent.OnServerEvent:Connect(function(player, action)
 	if action ~= "exit" and action ~= "board" and action ~= "sample" and action ~= "isru" then
@@ -598,12 +598,12 @@ evaEvent.OnServerEvent:Connect(function(player, action)
 	if action == "exit" then
 		EVA.Exit(player, flights[player])
 	elseif action == "isru" then
-		ISRU.Start(player) -- кнопка HUD: найближча станція, усі перевірки — у модулі
+		ISRU.Start(player) -- HUD button: nearest station, all checks are in the module
 	elseif action == "sample" then
-		-- запасний шлях до ProximityPrompt зразка: усі перевірки (EVA, дистанція) — у модулі
+		-- fallback for the sample ProximityPrompt: all checks (EVA, distance) are in the module
 		SampleMission.CollectNearest(player)
 	else
-		-- запасний шлях до ProximityPrompt (кнопка / мобільні): дистанцію до люка перевіряє EVA.Board
+		-- fallback for the ProximityPrompt (button / mobile): EVA.Board checks the distance to the hatch
 		EVA.Board(player)
 	end
 end)
@@ -617,7 +617,7 @@ scienceEvent.OnServerEvent:Connect(function(player, kind)
 	notify(player, message, not ok)
 end)
 
--- Пункт «Рідкий кисень (LOX)» біля баків: скільки LOX у ракеті і навіщо він
+-- The "Liquid oxygen (LOX)" station by the tanks: how much LOX is in the rocket and why
 if LaunchSite.LOXPrompt then
 	LaunchSite.LOXPrompt.Triggered:Connect(function(player)
 		local fuel = player:GetAttribute("RocketFuel") or 0
@@ -632,7 +632,7 @@ if LaunchSite.LOXPrompt then
 	end)
 end
 
--- Наукова зона: атрибути для HUD і підсвічування маяків (~2 рази на секунду)
+-- Science zone: HUD attributes and beacon highlighting (~2 times per second)
 local zoneTimer = 0
 RunService.Heartbeat:Connect(function(dt)
 	zoneTimer += dt
@@ -643,7 +643,7 @@ RunService.Heartbeat:Connect(function(dt)
 	for player, flight in pairs(flights) do
 		if not flight.ended and flight.core.Parent then
 			Science.Update(flight)
-			EVA.ServerOwn(flight) -- крісло з астронавтом віддає ракету клієнту — повертаємо серверу
+			EVA.ServerOwn(flight) -- the seat with the astronaut hands the rocket to the client — give it back to the server
 			EVA.Update(player, flight)
 			ISRU.Update(player, flight)
 		end

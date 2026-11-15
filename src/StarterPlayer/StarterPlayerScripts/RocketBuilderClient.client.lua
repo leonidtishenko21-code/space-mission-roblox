@@ -1,14 +1,14 @@
 --[[
 	RocketBuilderClient (LocalScript)
-	Місце: StarterPlayer > StarterPlayerScripts > RocketBuilderClient
+	Location: StarterPlayer > StarterPlayerScripts > RocketBuilderClient
 
-	Конструктор ракети (крок 3). Відкривається клавішею E біля пульта
-	"Конструктор ракети" в ангарі (Workspace > Hangar > BuilderConsole).
-	  • Ліворуч  — каталог деталей (з NASAData.Modules) за категоріями.
-	  • Посередині — креслення ракети і список деталей (згори вниз).
-	  • Праворуч — інженерні розрахунки (маса, тяга, TWR, Δv...) і перевірки.
-	Кнопка "Зібрати" просить сервер купити деталі й поставити ракету на майданчик.
-	Сервер перевіряє все ще раз (RocketMath), тому підробити ракету не можна.
+	Rocket builder (step 3). Opens with E at the
+	"Rocket builder" console in the hangar (Workspace > Hangar > BuilderConsole).
+	  • Left   — parts catalogue (from NASAData.Modules) by category.
+	  • Centre — rocket blueprint and the list of parts (top to bottom).
+	  • Right  — engineering numbers (mass, thrust, TWR, Δv...) and checks.
+	The "Build" button asks the server to buy the parts and place the rocket on the pad.
+	The server checks everything again (RocketMath), so a rocket cannot be faked.
 ]]
 
 local Players = game:GetService("Players")
@@ -29,7 +29,7 @@ local fuelEvent = remotes:WaitForChild("FuelRocket")
 local dismantleEvent = remotes:WaitForChild("DismantleRocket")
 
 --------------------------------------------------------------------
--- ⚙️ НАЛАШТУВАННЯ
+-- ⚙️ SETTINGS
 --------------------------------------------------------------------
 local FONT_BOLD = Enum.Font.GothamBold
 local FONT_REGULAR = Enum.Font.Gotham
@@ -49,7 +49,7 @@ local COLOR_OK = Color3.fromRGB(110, 210, 110)
 local COLOR_WARN = Color3.fromRGB(240, 190, 40)
 local COLOR_ERROR = Color3.fromRGB(230, 90, 80)
 
-local CLOSE_DISTANCE = 25 -- вікно закривається, якщо відійти від пульта далі
+local CLOSE_DISTANCE = 25 -- the window closes if you walk farther from the console
 
 local TABS = {
 	{ name = "Engines", cats = { engine = true } },
@@ -67,7 +67,7 @@ local fmt = RocketMath.FormatNumber
 local Modules = NASAData.Modules
 
 --------------------------------------------------------------------
--- Допоміжні функції
+-- Helper functions
 --------------------------------------------------------------------
 local function create(className, props)
 	local obj = Instance.new(className)
@@ -141,7 +141,7 @@ local function clearChildren(frame)
 	end
 end
 
--- для RichText: колір і екранування символів < > &
+-- for RichText: colour and escaping of the < > & characters
 local function hex(c)
 	return string.format("#%02X%02X%02X", math.floor(c.R * 255 + 0.5), math.floor(c.G * 255 + 0.5), math.floor(c.B * 255 + 0.5))
 end
@@ -167,7 +167,7 @@ local function copyDesign(d)
 	return { stack = table.clone(d.stack), radial = table.clone(d.radial), engineCount = d.engineCount }
 end
 
--- Короткий опис деталі в каталозі
+-- Short part description in the catalogue
 local function moduleInfo(m)
 	local parts = { "$" .. fmt(m.cost), fmt(m.dryMass) .. " kg" }
 	if m.fuelCapacity then
@@ -190,12 +190,12 @@ local function moduleInfo(m)
 end
 
 --------------------------------------------------------------------
--- Стан
+-- State
 --------------------------------------------------------------------
-local draft = RocketMath.EmptyDesign() -- креслення, яке гравець редагує
-local builtDesign = nil                 -- креслення ракети, що вже стоїть на майданчику
-local hintText = nil                    -- коротка підказка після невдалої дії
-local designDirty = true                -- треба перемалювати список і креслення
+local draft = RocketMath.EmptyDesign() -- the blueprint the player is editing
+local builtDesign = nil                 -- blueprint of the rocket already on the pad
+local hintText = nil                    -- short hint after a failed action
+local designDirty = true                -- the list and the blueprint need redrawing
 local lastMode = nil
 local lastStats = nil
 local lastDesign = nil
@@ -216,14 +216,14 @@ local function decodeBuiltDesign()
 end
 
 --------------------------------------------------------------------
--- ВІКНО
+-- WINDOW
 --------------------------------------------------------------------
 local gui = create("ScreenGui", {
 	Name = "RocketBuilder",
 	ResetOnSpawn = false,
 	ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 	Enabled = false,
-	DisplayOrder = 4, -- під HUD (5), щоб повідомлення сервера було видно поверх вікна
+	DisplayOrder = 4, -- below the HUD (5), so server messages show on top of the window
 	Parent = playerGui,
 })
 
@@ -292,7 +292,7 @@ local designCol = column(0.33, 2, 0.29, -6)
 local statsCol = column(0.62, 2, 0.38, -2)
 
 --------------------------------------------------------------------
--- Ліва колонка: каталог
+-- Left column: catalogue
 --------------------------------------------------------------------
 local tabsFrame = create("Frame", {
 	Size = UDim2.new(1, 0, 0, 108),
@@ -335,7 +335,7 @@ local catalogLock = create("TextLabel", {
 addStyle(catalogLock, 8)
 
 --------------------------------------------------------------------
--- Середня колонка: креслення + список деталей
+-- Middle column: blueprint + list of parts
 --------------------------------------------------------------------
 create("TextLabel", {
 	Size = UDim2.new(1, 0, 0, 26),
@@ -370,7 +370,7 @@ local designList = create("ScrollingFrame", {
 create("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder, Parent = designList })
 
 --------------------------------------------------------------------
--- Права колонка: розрахунки, перевірки, кнопки
+-- Right column: calculations, checks, buttons
 --------------------------------------------------------------------
 local rows = create("Frame", {
 	Size = UDim2.new(1, 0, 0, 12 * 24),
@@ -379,7 +379,7 @@ local rows = create("Frame", {
 })
 create("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Parent = rows })
 
-local statRows = {} -- для адаптивної висоти (див. layoutStats)
+local statRows = {} -- for adaptive height (see layoutStats)
 
 local function makeRow(order, labelText)
 	local row = create("Frame", {
@@ -459,8 +459,8 @@ local messagesLabel = create("TextLabel", {
 	Parent = messagesFrame,
 })
 
--- Адаптивна висота: на невеликому екрані рядки розрахунків стискаються, щоб вікно повідомлень
--- завжди мало щонайменше MIN_MESSAGES px і текст не налазив на рядки (знизу 100 px — кнопки).
+-- Adaptive height: on a small screen the calculation rows shrink so that the message box
+-- always has at least MIN_MESSAGES px and the text does not overlap the rows (the bottom 100 px are buttons).
 local MIN_MESSAGES = 70
 local function layoutStats()
 	local h = statsCol.AbsoluteSize.Y
@@ -482,7 +482,7 @@ end
 statsCol:GetPropertyChangedSignal("AbsoluteSize"):Connect(layoutStats)
 layoutStats()
 
--- Смужка пального (видно, коли ракету зібрано)
+-- Fuel bar (visible when the rocket is built)
 local fuelBox = create("Frame", {
 	AnchorPoint = Vector2.new(0, 1),
 	Position = UDim2.new(0, 0, 1, -54),
@@ -540,10 +540,10 @@ rightButton.Size = UDim2.new(0.6, -5, 0, 46)
 rightButton.LayoutOrder = 2
 
 --------------------------------------------------------------------
--- Редагування креслення
+-- Editing the blueprint
 --------------------------------------------------------------------
-local refresh -- оголошено нижче
-local updateCatalogCompat -- оголошено нижче (червона рамка «НЕСУМІСНИЙ ДІАМЕТР»)
+local refresh -- declared below
+local updateCatalogCompat -- declared below (red "INCOMPATIBLE DIAMETER" frame)
 
 local function changed(hint)
 	hintText = hint
@@ -573,28 +573,28 @@ local function addModule(id)
 			top -= 1
 		end
 		if top >= 2 and stack[top] == "decoupler" then
-			-- нагорі декуплер → це двигун наступного ступеня
+			-- decoupler on top → this is the next stage's engine
 			if #stack >= RocketMath.MAX_STACK then
 				changed("There are already " .. RocketMath.MAX_STACK .. " parts on the main axis.")
 				return
 			end
 			table.insert(stack, top + 1, id)
 		elseif stack[1] == id then
-			-- такий самий двигун → ще один у кластер
+			-- the same engine → one more in the cluster
 			if draft.engineCount >= RocketMath.MAX_ENGINES then
 				changed("Maximum " .. RocketMath.MAX_ENGINES .. " engines per cluster.")
 				return
 			end
 			draft.engineCount += 1
 		elseif RocketMath.IsMainEngine(stack[1]) then
-			stack[1] = id -- інший двигун → заміняємо
+			stack[1] = id -- a different engine → replace it
 			draft.engineCount = 1
 		else
 			if #stack >= RocketMath.MAX_STACK then
 				changed("There are already " .. RocketMath.MAX_STACK .. " parts on the main axis.")
 				return
 			end
-			table.insert(stack, 1, id) -- двигун завжди вниз
+			table.insert(stack, 1, id) -- the engine always goes to the bottom
 			draft.engineCount = 1
 		end
 	else
@@ -602,7 +602,7 @@ local function addModule(id)
 			changed("There are already " .. RocketMath.MAX_STACK .. " parts on the main axis.")
 			return
 		end
-		-- нова деталь стає нагору, але під носовий обтічник
+		-- a new part goes on top, but below the nose cone
 		if not RocketMath.IsTopCap(id) and RocketMath.IsTopCap(stack[#stack]) then
 			table.insert(stack, #stack, id)
 		else
@@ -641,12 +641,12 @@ local function setEngineCount(n)
 end
 
 --------------------------------------------------------------------
--- Каталог
+-- Catalogue
 --------------------------------------------------------------------
 local currentTab = 1
 local tabButtons = {}
 
--- Сумісність діаметрів: чи стане креслення гіршим, якщо поставити цю деталь нагору (як робить addModule)
+-- Diameter compatibility: would the blueprint get worse if this part were put on top (as addModule does)
 local catalogItems = {}
 local function breaksDiameter(id)
 	local m = Modules[id]
@@ -758,7 +758,7 @@ local function rebuildCatalog()
 		btn.Activated:Connect(function()
 			addModule(item.id)
 		end)
-		-- червона рамка: деталь ширша за верхній модуль на кресленні
+		-- red frame: the part is wider than the top module of the blueprint
 		local stroke = create("UIStroke", {
 			Name = "CompatStroke", Color = COLOR_ERROR, Thickness = 2.5, Enabled = false, Parent = btn,
 		})
@@ -806,7 +806,7 @@ for k, tab in ipairs(TABS) do
 end
 
 --------------------------------------------------------------------
--- Список деталей у ракеті
+-- List of parts in the rocket
 --------------------------------------------------------------------
 local function addSection(order, text)
 	create("TextLabel", {
@@ -822,7 +822,7 @@ local function addSection(order, text)
 	})
 end
 
--- buttons = { { "текст", колір, функція }, ... }
+-- buttons = { { "text", colour, function }, ... }
 local function addDesignRow(order, moduleId, text, buttons)
 	local row = create("Frame", {
 		Size = UDim2.new(1, -8, 0, 0),
@@ -839,7 +839,7 @@ local function addDesignRow(order, moduleId, text, buttons)
 		BorderSizePixel = 0,
 		Parent = row,
 	})
-	-- назва (може переноситися на 2 рядки) і під нею кнопки
+	-- name (may wrap onto 2 lines) with buttons under it
 	local content = create("Frame", {
 		Position = UDim2.fromOffset(12, 0),
 		Size = UDim2.new(1, -16, 0, 0),
@@ -946,7 +946,7 @@ local function rebuildDesignList(design, built)
 end
 
 --------------------------------------------------------------------
--- Креслення (вид збоку)
+-- Blueprint (side view)
 --------------------------------------------------------------------
 local function drawPreview(design, stats)
 	clearChildren(preview)
@@ -1020,7 +1020,7 @@ local function drawPreview(design, stats)
 		end
 	end
 
-	-- бічні деталі: проєкція на вид спереду (ті, що "ззаду", малюємо під корпусом)
+	-- side parts: projection onto the front view (the ones "behind" are drawn under the body)
 	for _, r in ipairs(layout.radial) do
 		local x = math.cos(r.angle) * (r.radius + 0.4)
 		local behind = math.sin(r.angle) > 0.3
@@ -1048,7 +1048,7 @@ preview:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
 end)
 
 --------------------------------------------------------------------
--- Оновлення всього вікна
+-- Updating the whole window
 --------------------------------------------------------------------
 refresh = function()
 	local built = isBuilt()
@@ -1058,12 +1058,12 @@ refresh = function()
 	local missionId = player:GetAttribute("Mission") or "Earth"
 	local planet = NASAData.Planets[missionId]
 
-	-- коли ракета вже куплена, гроші не перевіряємо
+	-- once the rocket is bought, money is not checked
 	local errors, warnings, s = RocketMath.Validate(design, built and math.huge or budget, missionId)
 
 	title.Text = "Rocket Builder — mission: " .. (planet and planet.name or missionId)
 
-	-- Числа
+	-- Numbers
 	costValue.Text = "$" .. fmt(s.cost)
 	costValue.TextColor3 = (built or s.cost <= budget) and COLOR_TEXT or COLOR_ERROR
 	budgetValue.Text = "$" .. fmt(budget)
@@ -1099,7 +1099,7 @@ refresh = function()
 		structureValue.TextColor3 = COLOR_ERROR
 	end
 
-	-- Повідомлення
+	-- Messages
 	local lines = {}
 	if planet then
 		table.insert(lines, colored("Mission: " .. planet.mission, COLOR_TEXT))
@@ -1140,7 +1140,7 @@ refresh = function()
 	end
 	messagesLabel.Text = table.concat(lines, "\n")
 
-	-- Пальне в зібраній ракеті
+	-- Fuel in the built rocket
 	fuelBox.Visible = built
 	if built then
 		local fuel = player:GetAttribute("RocketFuel") or 0
@@ -1149,7 +1149,7 @@ refresh = function()
 		tween(fuelBarFill, 0.3, { Size = UDim2.fromScale(math.clamp(fuel / capacity, 0, 1), 1) })
 	end
 
-	-- Кнопки
+	-- Buttons
 	if built then
 		local fuel = player:GetAttribute("RocketFuel") or 0
 		local capacity = player:GetAttribute("RocketFuelCapacity") or 0
@@ -1170,7 +1170,7 @@ refresh = function()
 	end
 	catalogLock.Visible = built
 
-	-- Список і креслення перемальовуємо лише після змін
+	-- The list and blueprint are redrawn only after changes
 	local mode = built and "built" or "edit"
 	if designDirty or mode ~= lastMode then
 		designDirty = false
@@ -1205,13 +1205,13 @@ rightButton.Activated:Connect(function()
 end)
 
 --------------------------------------------------------------------
--- Зміни від сервера
+-- Changes from the server
 --------------------------------------------------------------------
 local function syncBuilt()
 	if isBuilt() then
 		builtDesign = decodeBuiltDesign()
 	elseif builtDesign then
-		-- ракету розібрали: її креслення повертається в редактор
+		-- the rocket was dismantled: its blueprint goes back into the editor
 		draft = copyDesign(builtDesign)
 		builtDesign = nil
 	end
@@ -1231,11 +1231,11 @@ player.AttributeChanged:Connect(function(name)
 end)
 
 --------------------------------------------------------------------
--- Відкриття біля пульта
+-- Opening at the console
 --------------------------------------------------------------------
 local function setOpen(open)
 	gui.Enabled = open
-	-- HUDClient ховає свою панель ресурсів, щоб вона не накривала заголовок конструктора
+	-- HUDClient hides its resource panel so it does not cover the builder title
 	player:SetAttribute("BuilderOpen", open)
 	if open then
 		hintText = nil

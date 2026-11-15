@@ -1,16 +1,16 @@
 --[[
 	HUDClient (LocalScript)
-	Місце: StarterPlayer > StarterPlayerScripts > HUDClient
+	Location: StarterPlayer > StarterPlayerScripts > HUDClient
 
-	Що робить:
-	  1. Панель зверху ліворуч: бюджет ($) і запас RP-1 зі смужкою.
-	  2. Вікно нафтової вишки (відкривається клавішею E біля пульта):
-	     рівень, видобуток, сховище, час до заповнення, кнопка покращення.
-	  3. Напис над сховищем: скільки % заповнено.
-	  4. Анімація качалки: гойдається швидше на вищому рівні, зупиняється, коли сховище повне.
-	  5. Повідомлення від сервера ("Недостатньо коштів" тощо).
+	What it does:
+	  1. Top-left panel: budget ($) and RP-1 stock with a bar.
+	  2. Oil derrick window (opens with E at the console):
+	     level, production, storage, time to full, upgrade button.
+	  3. Label above the storage tank: how full it is in %.
+	  4. Pumpjack animation: rocks faster at higher levels, stops when the storage is full.
+	  5. Messages from the server ("Not enough money", etc.).
 
-	HUD з'являється тільки після головного меню.
+	The HUD appears only after the main menu.
 ]]
 
 local Players = game:GetService("Players")
@@ -27,7 +27,7 @@ local upgradeEvent = remotes:WaitForChild("UpgradeOilRig")
 local notifyEvent = remotes:WaitForChild("Notify")
 
 --------------------------------------------------------------------
--- ⚙️ НАЛАШТУВАННЯ
+-- ⚙️ SETTINGS
 --------------------------------------------------------------------
 local FONT_BOLD = Enum.Font.GothamBold
 local FONT_REGULAR = Enum.Font.Gotham
@@ -43,7 +43,7 @@ local COLOR_FUEL = Color3.fromRGB(230, 170, 50)
 local COLOR_ERROR = Color3.fromRGB(220, 80, 70)
 
 --------------------------------------------------------------------
--- Допоміжні функції
+-- Helper functions
 --------------------------------------------------------------------
 local function create(className, props)
 	local obj = Instance.new(className)
@@ -71,7 +71,7 @@ local function formatNumber(n)
 	return (spaced:gsub("^%s+", ""))
 end
 
--- 125 → "2 хв 05 с"
+-- 125 → "2 min 05 s"
 local function formatTime(seconds)
 	seconds = math.ceil(seconds)
 	local m = math.floor(seconds / 60)
@@ -127,7 +127,7 @@ local function setButtonEnabled(button, enabled)
 end
 
 --------------------------------------------------------------------
--- HUD: бюджет і пальне
+-- HUD: budget and fuel
 --------------------------------------------------------------------
 local hud = create("ScreenGui", {
 	Name = "HUD",
@@ -188,12 +188,12 @@ local fuelBarFill = create("Frame", {
 })
 create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = fuelBarFill })
 
--- Повідомлення зверху по центру
+-- Message at the top centre
 local toast = create("TextLabel", {
 	AnchorPoint = Vector2.new(0.5, 0),
 	Position = UDim2.new(0.5, 0, 0, 16),
 	Size = UDim2.fromOffset(460, 44),
-	AutomaticSize = Enum.AutomaticSize.Y, -- кілька рядків (список помилок) — повідомлення росте вниз
+	AutomaticSize = Enum.AutomaticSize.Y, -- several lines (a list of errors) — the message grows downwards
 	BackgroundColor3 = COLOR_PANEL,
 	Text = "",
 	TextColor3 = COLOR_TEXT,
@@ -219,9 +219,9 @@ local function showToast(text, isError)
 	toastStroke.Color = isError and COLOR_ERROR or COLOR_BORDER
 	toast.TextColor3 = isError and Color3.fromRGB(255, 200, 195) or COLOR_TEXT
 	toast.Visible = true
-	-- 3 с + ще 1.5 с на кожен додатковий рядок, щоб встигнути прочитати
+	-- 3 s + another 1.5 s for each extra line, so there is time to read it
 	local _, lineBreaks = text:gsub("\n", "")
-	-- список вирівнюємо ліворуч, одне речення — по центру
+	-- a list is left-aligned, a single sentence is centred
 	toast.TextXAlignment = lineBreaks > 0 and Enum.TextXAlignment.Left or Enum.TextXAlignment.Center
 	task.delay(3 + 1.5 * lineBreaks, function()
 		if toastId == myId then
@@ -233,7 +233,7 @@ end
 notifyEvent.OnClientEvent:Connect(showToast)
 
 --------------------------------------------------------------------
--- Вікно нафтової вишки
+-- Oil derrick window
 --------------------------------------------------------------------
 local rigPanel = create("Frame", {
 	Name = "OilRigPanel",
@@ -352,7 +352,7 @@ closeButton.Size = UDim2.fromOffset(150, 50)
 closeButton.LayoutOrder = 2
 
 --------------------------------------------------------------------
--- Оновлення всіх чисел
+-- Updating all the numbers
 --------------------------------------------------------------------
 local function getData()
 	return {
@@ -364,7 +364,7 @@ local function getData()
 	}
 end
 
-local tankBillboardLabel -- створимо нижче
+local tankBillboardLabel -- created below
 
 local function refresh()
 	local d = getData()
@@ -375,13 +375,13 @@ local function refresh()
 	fuelLabel.Text = "RP-1: " .. formatNumber(d.rp1) .. " / " .. formatNumber(d.capacity) .. " kg"
 	tween(fuelBarFill, 0.3, { Size = UDim2.fromScale(fraction, 1) })
 
-	-- Вікно вишки
+	-- Derrick window
 	levelValue.Text = d.level .. " / " .. #NASAData.OilRig
 	rateValue.Text = formatNumber(d.rate) .. " kg/s"
 	storedValue.Text = formatNumber(d.rp1) .. " / " .. formatNumber(d.capacity) .. " kg"
 	budgetValue.Text = "$" .. formatNumber(d.budget)
 
-	-- Час до заповнення = (місткість − запас) / швидкість
+	-- Time to full = (capacity − stock) / rate
 	if d.rp1 >= d.capacity then
 		timeValue.Text = "Storage full"
 	elseif d.rate > 0 then
@@ -420,11 +420,11 @@ closeButton.MouseButton1Click:Connect(function()
 end)
 
 --------------------------------------------------------------------
--- Об'єкти у світі: пульт, сховище, качалка
+-- World objects: console, storage tank, pumpjack
 --------------------------------------------------------------------
 local rig = workspace:WaitForChild("OilRig", 10)
 if rig then
-	-- E біля пульта відкриває/закриває вікно
+	-- E at the console opens/closes the window
 	local panel = rig:FindFirstChild("ControlPanel")
 	local prompt = panel and panel:FindFirstChildOfClass("ProximityPrompt")
 	if prompt then
@@ -434,7 +434,7 @@ if rig then
 		end)
 	end
 
-	-- Закриваємо вікно, якщо гравець відійшов далеко від пульта
+	-- Close the window if the player walks far away from the console
 	RunService.Heartbeat:Connect(function()
 		if rigPanel.Visible and panel then
 			local character = player.Character
@@ -445,7 +445,7 @@ if rig then
 		end
 	end)
 
-	-- Напис над сховищем (бачить тільки цей гравець)
+	-- Label above the storage tank (only this player sees it)
 	local tank = rig:FindFirstChild("StorageTank")
 	if tank then
 		local billboard = create("BillboardGui", {
@@ -470,7 +470,7 @@ if rig then
 		create("UICorner", { CornerRadius = UDim.new(0, 10), Parent = tankBillboardLabel })
 	end
 
-	-- Качалка гойдається; швидкість залежить від рівня; стоп, коли сховище повне
+	-- The pumpjack rocks; the speed depends on the level; it stops when the storage is full
 	local arm = rig:FindFirstChild("PumpArm")
 	if arm then
 		local basePivot = arm:GetPivot()
@@ -488,14 +488,14 @@ else
 end
 
 --------------------------------------------------------------------
--- Показ HUD після головного меню
+-- Showing the HUD after the main menu
 --------------------------------------------------------------------
 local function showHud()
 	hud.Enabled = true
 	refresh()
 end
 
--- MainMenuClient ставить атрибут InGame = true, коли гравець потрапляє в ангар
+-- MainMenuClient sets the attribute InGame = true when the player gets into the hangar
 local function checkInGame()
 	if player:GetAttribute("InGame") == true then
 		showHud()
@@ -505,8 +505,8 @@ end
 player:GetAttributeChangedSignal("InGame"):Connect(checkInGame)
 checkInGame()
 
--- Поки відкритий конструктор ракети, панель ресурсів ховається: бюджет і RP-1 показує сам конструктор,
--- а панель накривала його заголовок (атрибут BuilderOpen ставить RocketBuilderClient)
+-- While the rocket builder is open the resource panel is hidden: the builder shows the budget and RP-1 itself,
+-- and the panel covered its title (the BuilderOpen attribute is set by RocketBuilderClient)
 player:GetAttributeChangedSignal("BuilderOpen"):Connect(function()
 	hudPanel.Visible = player:GetAttribute("BuilderOpen") ~= true
 end)

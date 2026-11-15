@@ -1,12 +1,12 @@
 --[[
-	LaunchSite (ModuleScript, СЕРВЕР)
-	Місце: ServerScriptService > Modules > LaunchSite
+	LaunchSite (ModuleScript, SERVER)
+	Location: ServerScriptService > Modules > LaunchSite
 
-	Стартовий комплекс з Blender (Workspace > LaunchPad):
-	  Launch_Table      — стартовий стіл; у газовідвідному жолобі (Deflector) — дим і іскри при запуску
-	  Launch_Tower      — пускова вежа; на T−2 с відхиляється назад на шарнірі (TweenService)
-	  Ground_LOX_Tanks  — баки рідкого кисню: пара випаровування + пункт «Рідкий кисень (LOX)»
-	Одночасно на майданчику може бути лише ОДНА ракета (TryClaim / Release).
+	Launch complex made in Blender (Workspace > LaunchPad):
+	  Launch_Table      — launch table; smoke and sparks come out of the flame trench (Deflector) at launch
+	  Launch_Tower      — launch tower; at T−2 s it tilts back on a hinge (TweenService)
+	  Ground_LOX_Tanks  — liquid oxygen tanks: boil-off vapour + the "Liquid oxygen (LOX)" station
+	Only ONE rocket can be on the pad at a time (TryClaim / Release).
 ]]
 
 local TweenService = game:GetService("TweenService")
@@ -19,13 +19,13 @@ local launchTable = pad:FindFirstChild("Launch_Table")
 local lox = pad:FindFirstChild("Ground_LOX_Tanks")
 
 --------------------------------------------------------------------
--- ⚙️ НАЛАШТУВАННЯ
+-- ⚙️ SETTINGS
 --------------------------------------------------------------------
-local TOWER_TILT = math.rad(-22)   -- наскільки вежа відхиляється від ракети
-local SMOKE_TIME = 10              -- с: скільки валить дим із жолоба після запалювання
+local TOWER_TILT = math.rad(-22)   -- how far the tower tilts away from the rocket
+local SMOKE_TIME = 10              -- s: how long smoke pours from the trench after ignition
 
 --------------------------------------------------------------------
--- Зайнятість майданчика
+-- Pad occupancy
 --------------------------------------------------------------------
 local padOwner = nil
 function LaunchSite.TryClaim(userId)
@@ -42,7 +42,7 @@ function LaunchSite.Release(userId)
 end
 
 --------------------------------------------------------------------
--- Вежа: поворот навколо шарніра в основі (pivot вежі = шарнір, локальна X — вісь шарніра)
+-- Tower: rotation around the hinge at its base (tower pivot = hinge, local X = hinge axis)
 --------------------------------------------------------------------
 local towerValue, homePivot
 if tower then
@@ -72,7 +72,7 @@ function LaunchSite.ResetTower()
 end
 
 --------------------------------------------------------------------
--- Дим, іскри та пара
+-- Smoke, sparks and vapour
 --------------------------------------------------------------------
 local SMOKE_TEX = "rbxasset://textures/particles/smoke_main.dds"
 local SPARK_TEX = "rbxasset://textures/particles/sparkles_main.dds"
@@ -100,7 +100,7 @@ local function smoke(parent, size, speed, rate)
 	e.RotSpeed = NumberRange.new(-40, 40)
 	e.Rotation = NumberRange.new(0, 360)
 	e.Rate = rate
-	e.EmissionDirection = Enum.NormalId.Front -- -Z атачмента
+	e.EmissionDirection = Enum.NormalId.Front -- the attachment's -Z
 	e.Enabled = false
 	e.Parent = parent
 	return e
@@ -129,7 +129,7 @@ if launchTable then
 	local deflector = launchTable:FindFirstChild("Launch_Table_Deflector")
 	local surface = pad:FindFirstChild("LaunchSurface")
 	if deflector then
-		-- жолоб тягнеться вздовж локальної Z столу і відкривається на +Z: туди й летить дим
+		-- the trench runs along the table's local Z and opens to +Z: that is where the smoke goes
 		local cf = deflector.CFrame
 		local out = (cf * CFrame.new(0, 0, deflector.Size.Z / 2)).Position
 		local dir = cf:VectorToWorldSpace(Vector3.zAxis)
@@ -138,7 +138,7 @@ if launchTable then
 		table.insert(launchFX, sparks(a))
 	end
 	if surface then
-		-- клуби диму навколо столу
+		-- smoke clouds around the table
 		local top = surface.Position + Vector3.new(0, surface.Size.Y / 2, 0)
 		for i = 0, 3 do
 			local dir = CFrame.Angles(0, i * math.pi / 2 + math.pi / 4, 0).LookVector
@@ -158,7 +158,7 @@ if lox then
 		vapor.Name = "LOXVapor"
 		vapor.Lifetime = NumberRange.new(2, 4)
 		vapor.Transparency = NumberSequence.new(0.5, 1)
-		vapor.Enabled = true -- кріогенне пальне постійно випаровується (−183 °C)
+		vapor.Enabled = true -- the cryogenic propellant constantly boils off (−183 °C)
 
 		local prompt = Instance.new("ProximityPrompt")
 		prompt.Name = "LOXPrompt"
@@ -172,14 +172,14 @@ if lox then
 	end
 end
 
--- Під час відліку баки LOX «дихають» сильніше (скидання тиску)
+-- During the countdown the LOX tanks "breathe" harder (pressure venting)
 function LaunchSite.SetVenting(on)
 	if vapor then
 		vapor.Rate = on and 25 or 3
 	end
 end
 
--- T−0: дим і іскри з газовідвідного жолоба
+-- T−0: smoke and sparks from the flame trench
 function LaunchSite.Ignition()
 	for _, e in ipairs(launchFX) do
 		e.Enabled = true

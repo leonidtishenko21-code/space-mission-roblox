@@ -1,10 +1,10 @@
 --[[
-	MissionVictoryClient (LocalScript) — КРОК 5: фінальне вікно перемоги NASA «Sample Return Mission»
-	Місце: StarterPlayer > StarterPlayerScripts > MissionVictoryClient
+	MissionVictoryClient (LocalScript) — STEP 5: the final NASA "Sample Return Mission" victory window
+	Location: StarterPlayer > StarterPlayerScripts > MissionVictoryClient
 
-	Сервер (FlightServer.buildReport) ставить report.sampleReturn = true, коли ракета м'яко сіла
-	на Землю зі зразком Місяця / Марса у вантажному відсіку капсули. Тоді поверх
-	звичайного звіту відкривається це вікно з максимальним рейтингом (100 / 100, клас S).
+	The server (FlightServer.buildReport) sets report.sampleReturn = true when the rocket has landed softly
+	on Earth with a Moon / Mars sample in the capsule's cargo bay. Then this window opens on top of
+	the normal report with the maximum rating (100 / 100, grade S).
 ]]
 
 local Players = game:GetService("Players")
@@ -60,7 +60,7 @@ local function show(r)
 	gui:SetAttribute("KeepInFlight", true)
 	current = gui
 
-	-- тло: зоряний космос
+	-- background: starry space
 	local bg = create("Frame", {
 		Size = UDim2.fromScale(1, 1),
 		BackgroundColor3 = Color3.fromRGB(4, 8, 22),
@@ -86,7 +86,7 @@ local function show(r)
 	end
 	TweenService:Create(bg, TweenInfo.new(0.6), { BackgroundTransparency = 0.08 }):Play()
 
-	-- панель
+	-- panel
 	local panel = create("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.55),
@@ -102,14 +102,14 @@ local function show(r)
 	TweenService:Create(scale, TweenInfo.new(0.55, Enum.EasingStyle.Back), { Scale = 1 }):Play()
 	TweenService:Create(panel, TweenInfo.new(0.55, Enum.EasingStyle.Back), { Position = UDim2.fromScale(0.5, 0.5) }):Play()
 
-	-- шапка NASA
+	-- NASA header
 	local header = create("Frame", {
 		Size = UDim2.new(1, 0, 0, 92),
 		BackgroundColor3 = NASA_BLUE,
 		Parent = panel,
 	})
 	corner(header, 18)
-	create("Frame", { -- рівний низ шапки
+	create("Frame", { -- flat bottom edge of the header
 		Position = UDim2.new(0, 0, 1, -18),
 		Size = UDim2.new(1, 0, 0, 18),
 		BackgroundColor3 = NASA_BLUE,
@@ -151,7 +151,7 @@ local function show(r)
 		Parent = header,
 	})
 
-	-- зразок
+	-- sample
 	local sampleBox = create("Frame", {
 		Position = UDim2.fromOffset(24, 108),
 		Size = UDim2.new(1, -48, 0, 70),
@@ -191,7 +191,7 @@ local function show(r)
 		Parent = sampleBox,
 	})
 
-	-- показники польоту
+	-- flight stats
 	local stats = create("Frame", {
 		Position = UDim2.fromOffset(24, 192),
 		Size = UDim2.new(1, -48, 0, 150),
@@ -238,7 +238,7 @@ local function show(r)
 	stat(5, "Science data", tostring(#(r.science or {})) .. " sets + sample")
 	stat(6, "Mission budget", "+$" .. fmt(r.rewards or 0))
 
-	-- рейтинг
+	-- rating
 	local rating = create("Frame", {
 		Position = UDim2.fromOffset(24, 352),
 		Size = UDim2.new(1, -48, 0, 84),
@@ -281,7 +281,7 @@ local function show(r)
 		TextColor3 = Color3.new(1, 1, 1),
 		Parent = rating,
 	})
-	-- анімація: зірки та лічильник до 100
+	-- animation: stars and a counter up to 100
 	task.spawn(function()
 		task.wait(0.6)
 		for i = 1, 5 do
@@ -325,7 +325,7 @@ local function show(r)
 		end)
 	end)
 
-	-- конфеті кольорів NASA
+	-- confetti in NASA colours
 	local colors = { NASA_RED, Color3.new(1, 1, 1), NASA_BLUE, GOLD, planet.color }
 	local pieces = {}
 	for i = 1, 60 do

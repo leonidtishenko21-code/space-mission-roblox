@@ -1,14 +1,14 @@
 --[[
 	MainMenuClient (LocalScript)
-	Місце: StarterPlayer > StarterPlayerScripts > MainMenuClient
+	Location: StarterPlayer > StarterPlayerScripts > MainMenuClient
 
-	Що робить:
-	  1. Будує головне меню (Грати / Налаштування / Про гру).
-	  2. Після "Грати" плавно показує екран завантаження з фото NASA.
-	  3. Справді завантажує деталі гри через ContentProvider:PreloadAsync() і показує %.
-	  4. Кнопка "Пропустити >>" одразу переносить гравця в Ангар.
+	What it does:
+	  1. Builds the main menu (Play / Settings / About).
+	  2. After "Play" it smoothly shows a loading screen with NASA photos.
+	  3. Really preloads the game assets with ContentProvider:PreloadAsync() and shows %.
+	  4. The "Skip >>" button takes the player straight to the Hangar.
 
-	Увесь інтерфейс створюється скриптом, тому вручну в StarterGui нічого робити не треба.
+	The whole interface is created by the script, so nothing has to be done in StarterGui by hand.
 ]]
 
 local Players = game:GetService("Players")
@@ -22,29 +22,29 @@ local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
 --------------------------------------------------------------------
--- ⚙️ НАЛАШТУВАННЯ — МІНЯЙ ТУТ
+-- ⚙️ SETTINGS — CHANGE THEM HERE
 --------------------------------------------------------------------
 local GAME_TITLE = "SPACE MISSION"
 local SUBTITLE = "An engineering space mission simulator"
 local VERSION_TEXT = "Phase 1  •  v0.1"
 
--- Ніки вашої команди (для вікна "Про гру")
+-- Your team's names (for the "About" window)
 local TEAM_NICKNAMES = { "Leonid Tishchenko", "Rostyslav Sakhno", "Illia Moroz" }
 
--- Фото NASA для екрана завантаження. Встав сюди ID після завантаження в Roblox:
--- приклад: "rbxassetid://1234567890"
+-- NASA photos for the loading screen. Put the IDs here after uploading them to Roblox:
+-- example: "rbxassetid://1234567890"
 local LOADING_IMAGES = {
 	-- "rbxassetid://0000000000",
 }
 
--- Якщо замість українських букв будуть квадратики — заміни на Enum.Font.Arial
+-- If some characters show up as squares, change this to Enum.Font.Arial
 local FONT_BOLD = Enum.Font.GothamBold
 local FONT_REGULAR = Enum.Font.Gotham
 
-local MIN_LOADING_TIME = 2.5 -- секунди: щоб екран завантаження не зникав миттєво
-local BATCH_SIZE = 25        -- скільки об'єктів завантажувати за один раз
+local MIN_LOADING_TIME = 2.5 -- seconds: so the loading screen does not vanish instantly
+local BATCH_SIZE = 25        -- how many objects to preload at a time
 
--- Кольори з ТЗ
+-- Colours from the spec
 local COLOR_BUTTON = Color3.fromRGB(76, 153, 76)
 local COLOR_BUTTON_HOVER = Color3.fromRGB(98, 180, 98)
 local COLOR_BORDER = Color3.fromRGB(40, 80, 40)
@@ -53,7 +53,7 @@ local COLOR_TEXT = Color3.fromRGB(255, 255, 255)
 local COLOR_TEXT_DIM = Color3.fromRGB(180, 195, 220)
 local COLOR_OFF = Color3.fromRGB(150, 60, 60)
 
--- Цікаві факти NASA під час завантаження
+-- Fun NASA facts during loading
 local FACTS = {
 	"Gravity on the Moon is 1.62 m/s² — about 1/6 of Earth's.",
 	"The Saturn V had 5 F-1 engines burning RP-1 and liquid oxygen.",
@@ -64,11 +64,11 @@ local FACTS = {
 }
 
 --------------------------------------------------------------------
--- ДОПОМІЖНІ ФУНКЦІЇ
+-- HELPER FUNCTIONS
 --------------------------------------------------------------------
 
--- Створює об'єкт і одразу задає йому властивості.
--- Parent ставимо останнім — так Roblox працює швидше.
+-- Creates an object and sets its properties right away.
+-- Parent is set last — Roblox works faster that way.
 local function create(className, props)
 	local obj = Instance.new(className)
 	local parent = props.Parent
@@ -88,9 +88,9 @@ local function tween(obj, time, goal)
 	return t
 end
 
--- Вимикаємо керування персонажем, поки відкрите меню
--- PlayerModule шукаємо у фоні (task.spawn), щоб меню з'являлося одразу.
--- Бажаний стан запам'ятовуємо і застосовуємо, коли керування знайдеться.
+-- Disable character controls while the menu is open
+-- PlayerModule is looked up in the background (task.spawn) so the menu appears immediately.
+-- The desired state is remembered and applied once the controls are found.
 local controls = nil
 local wantedControlsEnabled = true
 
@@ -117,14 +117,14 @@ local function setControls(enabled)
 	applyControls()
 end
 
--- Ховаємо стандартний інтерфейс Roblox (чат, список гравців), поки відкрите меню
+-- Hide the default Roblox UI (chat, player list) while the menu is open
 local function setCoreGui(enabled)
 	pcall(function()
 		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, enabled)
 	end)
 end
 
--- Малює випадкові "зірки" на фоні
+-- Draws random "stars" in the background
 local function addStars(parent, count)
 	for _ = 1, count do
 		local size = math.random(1, 3)
@@ -140,7 +140,7 @@ local function addStars(parent, count)
 	end
 end
 
--- Зелена кнопка з рамкою та анімацією наведення
+-- Green button with a border and a hover animation
 local function makeButton(text, order, parent)
 	local button = create("TextButton", {
 		Name = text,
@@ -177,7 +177,7 @@ local function makeButton(text, order, parent)
 end
 
 --------------------------------------------------------------------
--- ЕКРАН ПЕРЕХОДУ (чорне затемнення)
+-- TRANSITION SCREEN (black fade)
 --------------------------------------------------------------------
 local fadeGui = create("ScreenGui", {
 	Name = "FadeGui",
@@ -194,14 +194,14 @@ local fadeFrame = create("Frame", {
 	Parent = fadeGui,
 })
 
--- transparency: 0 = повністю чорно, 1 = прозоро
+-- transparency: 0 = fully black, 1 = transparent
 local function fadeTo(transparency, time)
 	local t = tween(fadeFrame, time or 0.5, { BackgroundTransparency = transparency })
 	t.Completed:Wait()
 end
 
 --------------------------------------------------------------------
--- ГОЛОВНЕ МЕНЮ
+-- MAIN MENU
 --------------------------------------------------------------------
 local menuGui = create("ScreenGui", {
 	Name = "MainMenuGui",
@@ -267,7 +267,7 @@ create("TextLabel", {
 	Parent = background,
 })
 
--- Стовпчик із трьох кнопок
+-- Column of three buttons
 local buttonHolder = create("Frame", {
 	Name = "Buttons",
 	AnchorPoint = Vector2.new(0.5, 0.5),
@@ -289,7 +289,7 @@ local playButton = makeButton("Play", 1, buttonHolder)
 local settingsButton = makeButton("Settings", 2, buttonHolder)
 local aboutButton = makeButton("About", 3, buttonHolder)
 
--- Шаблон вікна (для Налаштувань і Про гру)
+-- Window template (for Settings and About)
 local function makePanel(name, titleText)
 	local panel = create("Frame", {
 		Name = name,
@@ -341,12 +341,12 @@ local function makePanel(name, titleText)
 end
 
 --------------------------------------------------------------------
--- НАЛАШТУВАННЯ: спецефекти та графіка неба
+-- SETTINGS: special effects and sky graphics
 --------------------------------------------------------------------
 
--- 1) Спецефекти (ParticleEmitter, Trail, Beam)
+-- 1) Special effects (ParticleEmitter, Trail, Beam)
 local vfxEnabled = true
-player:SetAttribute("VFXEnabled", true) -- інші скрипти (вогонь двигуна) зможуть це перевіряти
+player:SetAttribute("VFXEnabled", true) -- other scripts (engine fire) can check this
 
 local function isVfx(obj)
 	return obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam")
@@ -358,7 +358,7 @@ local function applyVfx(enabled)
 	for _, obj in ipairs(workspace:GetDescendants()) do
 		if isVfx(obj) then
 			if not enabled and obj.Enabled then
-				-- запам'ятовуємо, що це МИ вимкнули ефект
+				-- remember that WE turned this effect off
 				obj:SetAttribute("HiddenBySettings", true)
 				obj.Enabled = false
 			elseif enabled and obj:GetAttribute("HiddenBySettings") then
@@ -369,7 +369,7 @@ local function applyVfx(enabled)
 	end
 end
 
--- Нові ефекти, що з'являться пізніше, теж вимикаються, якщо VFX вимкнені
+-- New effects that appear later are also turned off if VFX are disabled
 workspace.DescendantAdded:Connect(function(obj)
 	if not vfxEnabled and isVfx(obj) and obj.Enabled then
 		obj:SetAttribute("HiddenBySettings", true)
@@ -377,13 +377,13 @@ workspace.DescendantAdded:Connect(function(obj)
 	end
 end)
 
--- 2) Графіка неба: тіні, атмосфера, хмари, ефекти освітлення
+-- 2) Sky graphics: shadows, atmosphere, clouds, lighting effects
 local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
 local originalDensity = atmosphere and atmosphere.Density or 0
 local originalShadows = Lighting.GlobalShadows
 local originalEffects = {}
 for _, effect in ipairs(Lighting:GetChildren()) do
-	if effect:IsA("PostEffect") then -- Bloom, SunRays, ColorCorrection тощо
+	if effect:IsA("PostEffect") then -- Bloom, SunRays, ColorCorrection, etc.
 		originalEffects[effect] = effect.Enabled
 	end
 end
@@ -476,7 +476,7 @@ create("TextLabel", {
 })
 
 --------------------------------------------------------------------
--- ПРО ГРУ
+-- ABOUT
 --------------------------------------------------------------------
 local aboutPanel, aboutContent = makePanel("AboutPanel", "About")
 
@@ -527,7 +527,7 @@ aboutButton.MouseButton1Click:Connect(function()
 end)
 
 --------------------------------------------------------------------
--- ЕКРАН ЗАВАНТАЖЕННЯ
+-- LOADING SCREEN
 --------------------------------------------------------------------
 local loadingGui = create("ScreenGui", {
 	Name = "LoadingScreen",
@@ -557,7 +557,7 @@ local photo = create("ImageLabel", {
 	Parent = loadingBg,
 })
 
--- Темна смуга знизу, щоб текст було видно на будь-якому фото
+-- A dark band at the bottom so the text is readable on any photo
 local bottomShade = create("Frame", {
 	AnchorPoint = Vector2.new(0, 1),
 	Position = UDim2.fromScale(0, 1),
@@ -635,14 +635,14 @@ local function setProgress(fraction)
 end
 
 --------------------------------------------------------------------
--- ПЕРЕХІД В АНГАР
+-- GOING TO THE HANGAR
 --------------------------------------------------------------------
 local function teleportToHangar()
 	local character = player.Character or player.CharacterAdded:Wait()
 	local hangar = workspace:WaitForChild("Hangar", 5)
 	local spawnPart = hangar and hangar:FindFirstChild("HangarSpawn")
 	if spawnPart and spawnPart:IsA("BasePart") then
-		-- ставимо персонажа на 3 studs вище точки, щоб не застряг у підлозі
+		-- place the character 3 studs above the point so it does not get stuck in the floor
 		character:PivotTo(spawnPart.CFrame + Vector3.new(0, 3, 0))
 	else
 		warn("[MainMenu] Workspace > Hangar > HangarSpawn not found — the player stays in place.")
@@ -670,7 +670,7 @@ end
 
 skipButton.MouseButton1Click:Connect(finishLoading)
 
--- Слайд-шоу фото NASA та зміна фактів
+-- NASA photo slideshow and changing facts
 local function startSlideshow()
 	task.spawn(function()
 		local index = 1
@@ -693,14 +693,14 @@ local function startSlideshow()
 	end)
 end
 
--- Справжнє завантаження: Прогрес (%) = завантажено / всього × 100
+-- Real loading: Progress (%) = loaded / total × 100
 local function startLoading()
 	startSlideshow()
 
 	task.spawn(function()
 		local startTime = os.clock()
 
-		-- спершу самі фото, щоб фон з'явився швидко
+		-- the photos first, so the background appears quickly
 		pcall(function()
 			ContentProvider:PreloadAsync({ photo })
 		end)
@@ -733,7 +733,7 @@ local function startLoading()
 		end
 		setProgress(1)
 
-		-- чекаємо мінімальний час, щоб гравець встиг побачити екран
+		-- wait the minimum time so the player has a chance to see the screen
 		while os.clock() - startTime < MIN_LOADING_TIME and not finished do
 			task.wait(0.1)
 		end
@@ -743,7 +743,7 @@ local function startLoading()
 end
 
 --------------------------------------------------------------------
--- КНОПКА "ГРАТИ"
+-- THE "PLAY" BUTTON
 --------------------------------------------------------------------
 local playPressed = false
 playButton.MouseButton1Click:Connect(function()
@@ -760,7 +760,7 @@ playButton.MouseButton1Click:Connect(function()
 end)
 
 --------------------------------------------------------------------
--- СТАРТ
+-- START
 --------------------------------------------------------------------
 setControls(false)
 setCoreGui(false)

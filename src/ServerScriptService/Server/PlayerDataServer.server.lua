@@ -1,16 +1,16 @@
 --[[
 	PlayerDataServer (Script)
-	Місце: ServerScriptService > Server > PlayerDataServer
+	Location: ServerScriptService > Server > PlayerDataServer
 
-	Що робить:
-	  1. Дає кожному гравцю стартовий бюджет і нафтову вишку рівня 1.
-	  2. Щосекунди додає RP-1 у сховище (не більше за місткість).
-	  3. Обробляє покращення вишки. Гроші перевіряє САМЕ сервер,
-	     щоб гравець не міг "намалювати" собі бюджет.
+	What it does:
+	  1. Gives every player a starting budget and a level-1 oil derrick.
+	  2. Adds RP-1 to storage every second (no more than the capacity).
+	  3. Handles derrick upgrades. Money is checked by the SERVER,
+	     so a player cannot "draw" themselves a budget.
 
-	Дані гравця зберігаються як Attributes (їх бачать і сервер, і гравець):
+	Player data is stored as Attributes (visible to both the server and the player):
 	  Budget, RP1, RP1Capacity, RP1Rate, OilRigLevel
-	(Збереження між сесіями через DataStore додамо пізніше.)
+	(Saving between sessions with DataStore will be added later.)
 ]]
 
 local Players = game:GetService("Players")
@@ -19,11 +19,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local NASAData = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("NASAData"))
 
 --------------------------------------------------------------------
--- ⚙️ НАЛАШТУВАННЯ
+-- ⚙️ SETTINGS
 --------------------------------------------------------------------
 local START_BUDGET = NASAData.Planets.Earth.budget -- $26 000
-local TICK = 1                                     -- як часто (с) додається пальне
-local PRODUCTION_SPEED = 1                         -- для тестів можна поставити 10 (у 10 разів швидше)
+local TICK = 1                                     -- how often (s) fuel is added
+local PRODUCTION_SPEED = 1                         -- for testing you can set 10 (10 times faster)
 
 --------------------------------------------------------------------
 -- Remotes
@@ -43,7 +43,7 @@ end
 local upgradeEvent = getRemote("UpgradeOilRig")
 local notifyEvent = getRemote("Notify")
 
--- 20000 → "20 000" (так само, як у HUDClient)
+-- 20000 → "20 000" (same as in HUDClient)
 local function formatNumber(n)
 	local s = tostring(math.floor(n + 0.5))
 	local spaced = s:reverse():gsub("(%d%d%d)", "%1 "):reverse()
@@ -55,7 +55,7 @@ local function notify(player, text, isError)
 end
 
 --------------------------------------------------------------------
--- Дані гравця
+-- Player data
 --------------------------------------------------------------------
 local function applyRigLevel(player, level)
 	local cfg = NASAData.OilRig[level]
@@ -66,7 +66,7 @@ end
 
 local function setupPlayer(player)
 	if player:GetAttribute("Budget") ~= nil then
-		return -- вже налаштований
+		return -- already set up
 	end
 	player:SetAttribute("Budget", START_BUDGET)
 	player:SetAttribute("RP1", 0)
@@ -79,7 +79,7 @@ for _, player in ipairs(Players:GetPlayers()) do
 end
 
 --------------------------------------------------------------------
--- Покращення вишки
+-- Derrick upgrade
 --------------------------------------------------------------------
 upgradeEvent.OnServerEvent:Connect(function(player)
 	local level = player:GetAttribute("OilRigLevel") or 1
@@ -101,7 +101,7 @@ upgradeEvent.OnServerEvent:Connect(function(player)
 end)
 
 --------------------------------------------------------------------
--- Видобуток RP-1:  нове_пальне = пальне + швидкість × час   (але ≤ місткості)
+-- RP-1 production:  new_fuel = fuel + rate × time   (but ≤ capacity)
 --------------------------------------------------------------------
 task.spawn(function()
 	while true do

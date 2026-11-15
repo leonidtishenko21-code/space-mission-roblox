@@ -1,23 +1,23 @@
 --[[
 	RocketServer (Script)
-	Місце: ServerScriptService > Server > RocketServer
+	Location: ServerScriptService > Server > RocketServer
 
-	Що робить (крок 3 — збирання ракети):
-	  1. BuildRocket     — перевіряє креслення (RocketMath.Validate), знімає гроші,
-	                       ставить 3D-ракету на майданчик BuildPad в ангарі.
-	  2. FuelRocket      — переливає RP-1 зі сховища вишки в баки ракети.
-	                       Кисень (LOX) береться з повітря безкоштовно:
-	                       1 кг RP-1 + 2.36 кг LOX = 3.36 кг пального.
-	  3. DismantleRocket — розбирає ракету: повертає 100% грошей і RP-1 з баків
-	                       (поки ракета не злетіла, це просто зміна креслення).
+	What it does (step 3 — rocket assembly):
+	  1. BuildRocket     — validates the blueprint (RocketMath.Validate), takes the money,
+	                       places the 3D rocket on the BuildPad in the hangar.
+	  2. FuelRocket      — pumps RP-1 from the derrick storage into the rocket tanks.
+	                       Oxygen (LOX) is taken from the air for free:
+	                       1 kg RP-1 + 2.36 kg LOX = 3.36 kg of propellant.
+	  3. DismantleRocket — dismantles the rocket: returns 100% of the money and the RP-1 in the tanks
+	                       (until the rocket has flown, it is just a blueprint change).
 
-	Атрибути гравця:
-	  Mission            — поточна місія ("Earth")
-	  RocketBuilt        — true, якщо ракета стоїть на майданчику
-	  RocketDesign       — креслення ракети (JSON-рядок)
-	  RocketCost         — скільки $ заплачено (повертається при розбиранні)
-	  RocketFuel         — скільки кг пального (RP-1 + LOX) у баках
-	  RocketFuelCapacity — місткість баків, кг
+	Player attributes:
+	  Mission            — current mission ("Earth")
+	  RocketBuilt        — true if a rocket stands on the pad
+	  RocketDesign       — rocket blueprint (JSON string)
+	  RocketCost         — how much $ was paid (returned on dismantling)
+	  RocketFuel         — how many kg of propellant (RP-1 + LOX) are in the tanks
+	  RocketFuelCapacity — tank capacity, kg
 ]]
 
 local Players = game:GetService("Players")
@@ -30,13 +30,13 @@ local RocketMath = require(modulesFolder:WaitForChild("RocketMath"))
 local RocketAssembler = require(game:GetService("ServerScriptService"):WaitForChild("Modules"):WaitForChild("RocketAssembler"))
 
 --------------------------------------------------------------------
--- ⚙️ НАЛАШТУВАННЯ
+-- ⚙️ SETTINGS
 --------------------------------------------------------------------
 local DEFAULT_MISSION = "Earth"
 local RP1_SHARE = NASAData.Constants.RP1_SHARE -- ≈ 0.30
 local fmt = RocketMath.FormatNumber
 
--- Якщо в грі кілька гравців, ракети стають у різні місця майданчика
+-- With several players in the game, rockets go to different spots on the pad
 local SLOT_OFFSETS = {
 	Vector3.new(0, 0, 0),
 	Vector3.new(-7, 0, -7),
@@ -77,7 +77,7 @@ if not rocketsFolder then
 end
 
 --------------------------------------------------------------------
--- Місце на майданчику
+-- Spot on the pad
 --------------------------------------------------------------------
 local function getPadTop()
 	local hangar = workspace:FindFirstChild("Hangar")
@@ -89,7 +89,7 @@ local function getPadTop()
 	return Vector3.new(0, 1.4, -70)
 end
 
-local slotOwner = {} -- [номер місця] = UserId
+local slotOwner = {} -- [spot number] = UserId
 
 local function freeSlot(player)
 	for slot, userId in pairs(slotOwner) do
@@ -107,11 +107,11 @@ local function takeSlot(player)
 			return slot
 		end
 	end
-	return 1 -- гравців більше, ніж місць: ставимо в центр
+	return 1 -- more players than spots: place it in the centre
 end
 
 --------------------------------------------------------------------
--- 3D-модель ракети: збирає RocketAssembler (ServerScriptService > Modules)
+-- 3D rocket model: built by RocketAssembler (ServerScriptService > Modules)
 --------------------------------------------------------------------
 local function removeRocketModel(player)
 	for _, model in ipairs(rocketsFolder:GetChildren()) do
@@ -122,12 +122,12 @@ local function removeRocketModel(player)
 	freeSlot(player)
 end
 
--- Коли ракету прибрано будь-як (розібрано, розбилася, гравець вийшов) — звільняємо місце
+-- When the rocket is removed in any way (dismantled, crashed, player left) — free the spot
 rocketsFolder.ChildRemoved:Connect(function(model)
 	local userId = model:GetAttribute("OwnerUserId")
 	for _, other in ipairs(rocketsFolder:GetChildren()) do
 		if other:GetAttribute("OwnerUserId") == userId then
-			return -- у гравця вже нова ракета — місце зайняте нею
+			return -- the player already has a new rocket — the spot is taken by it
 		end
 	end
 	for slot, owner in pairs(slotOwner) do
@@ -144,12 +144,12 @@ local function buildRocketModel(player, design)
 	local model = RocketAssembler.Build(design, base, "Rocket: " .. player.DisplayName)
 	model.Name = "Rocket_" .. player.Name
 	model:SetAttribute("OwnerUserId", player.UserId)
-	model:SetAttribute("HangarBase", base) -- щоб повернути ракету з майданчика назад
+	model:SetAttribute("HangarBase", base) -- to bring the rocket back from the pad
 	model.Parent = rocketsFolder
 end
 
 --------------------------------------------------------------------
--- Гравці
+-- Players
 --------------------------------------------------------------------
 local function clearRocketAttributes(player)
 	player:SetAttribute("RocketBuilt", false)
@@ -177,7 +177,7 @@ end
 Players.PlayerRemoving:Connect(removeRocketModel)
 
 --------------------------------------------------------------------
--- 1. Зібрати ракету
+-- 1. Build the rocket
 --------------------------------------------------------------------
 buildEvent.OnServerEvent:Connect(function(player, rawDesign)
 	if player:GetAttribute("RocketBuilt") then
@@ -191,13 +191,13 @@ buildEvent.OnServerEvent:Connect(function(player, rawDesign)
 
 	local budget = player:GetAttribute("Budget") or 0
 	local missionId = player:GetAttribute("Mission") or DEFAULT_MISSION
-	-- Сервер перевіряє ВСЕ сам — клієнту не довіряємо
+	-- The server checks EVERYTHING itself — the client is not trusted
 	local errors, _, stats = RocketMath.Validate(design, budget, missionId)
 	if #errors == 1 then
 		notify(player, errors[1], true)
 		return
 	elseif #errors > 1 then
-		-- показуємо всі помилки одразу, кожну з нового рядка
+		-- show all errors at once, each on a new line
 		notify(player, "The rocket cannot be built:\n• " .. table.concat(errors, "\n• "), true)
 		return
 	end
@@ -208,16 +208,16 @@ buildEvent.OnServerEvent:Connect(function(player, rawDesign)
 	player:SetAttribute("RocketFuelCapacity", stats.fuel)
 	player:SetAttribute("RocketDesign", HttpService:JSONEncode(design))
 	player:SetAttribute("RocketState", "Hangar")
-	player:SetAttribute("RocketBuilt", true) -- останнім: клієнт уже має креслення
+	player:SetAttribute("RocketBuilt", true) -- last: the client already has the blueprint
 
 	buildRocketModel(player, design)
 	notify(player, "Rocket built for $" .. fmt(stats.cost) .. "! Now fuel it up.", false)
 end)
 
 --------------------------------------------------------------------
--- 2. Заправити ракету
---   RP-1, якого бракує = (місткість − пальне) × частка RP-1
---   пальне, що додалося = RP-1 / частка RP-1   (решта — кисень з повітря)
+-- 2. Fuel the rocket
+--   missing RP-1 = (capacity − fuel) × RP-1 fraction
+--   propellant added = RP-1 / RP-1 fraction   (the rest is oxygen from the air)
 --------------------------------------------------------------------
 fuelEvent.OnServerEvent:Connect(function(player)
 	if not player:GetAttribute("RocketBuilt") then
@@ -258,7 +258,7 @@ fuelEvent.OnServerEvent:Connect(function(player)
 end)
 
 --------------------------------------------------------------------
--- 3. Розібрати ракету
+-- 3. Dismantle the rocket
 --------------------------------------------------------------------
 dismantleEvent.OnServerEvent:Connect(function(player)
 	if not player:GetAttribute("RocketBuilt") then
@@ -274,9 +274,9 @@ dismantleEvent.OnServerEvent:Connect(function(player)
 	local capacity = player:GetAttribute("RP1Capacity") or rp1
 
 	player:SetAttribute("Budget", (player:GetAttribute("Budget") or 0) + refund)
-	-- RP-1 з баків повертається у сховище (що не влізе — втрачається)
+	-- RP-1 from the tanks goes back to storage (whatever does not fit is lost)
 	player:SetAttribute("RP1", math.min(rp1 + fuel * RP1_SHARE, math.max(capacity, rp1)))
-	clearRocketAttributes(player) -- RocketBuilt = false першим
+	clearRocketAttributes(player) -- RocketBuilt = false first
 
 	removeRocketModel(player)
 	notify(player, "Rocket disassembled: refunded $" .. fmt(refund) .. ".", false)

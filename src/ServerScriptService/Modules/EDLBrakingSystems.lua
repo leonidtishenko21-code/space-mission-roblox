@@ -1,32 +1,32 @@
 --[[
-	EDLBrakingSystems (ModuleScript, СЕРВЕР)
-	Місце: ServerScriptService > Modules > EDLBrakingSystems
+	EDLBrakingSystems (ModuleScript, SERVER)
+	Location: ServerScriptService > Modules > EDLBrakingSystems
 
-	EDL = Entry, Descent, Landing (вхід, зниження, посадка). Клавіша P / кнопка «ПАРАШУТ» у HUD.
+	EDL = Entry, Descent, Landing. Key P / the "PARACHUTE" button in the HUD.
 
-	ПАРАШУТ (Земля, Марс — де є атмосфера):
-	  • потрібен модуль «Парашут» на ракеті; розкривається нижче MAX_DEPLOY_ALT_KM;
-	  • площа купола розраховується під масу ракети так, щоб на Землі сідати ≈ 7 м/с
-	    (так роблять інженери NASA):  A = 2·m·g / (ρ₀·v²·Cd)
-	  • опір купола:  F = ½·ρ·v²·Cd·A  (проти швидкості), купол розкривається за 1.5 с;
-	  • якщо швидкісний напір ½ρv² > MAX_Q — купол рветься (розкривати треба вище й повільніше);
-	  • поки купол відкритий — ракета тримається днищем до планети; після посадки купол відстрілюється.
-	  На Марсі повітря у 60 разів рідше — той самий купол гальмує лише до ≈ 55 м/с,
-	  тому там потрібне ще й гальмування двигуном (як у справжніх місій Curiosity / Perseverance).
+	PARACHUTE (Earth, Mars — wherever there is an atmosphere):
+	  • needs a "Parachute" module on the rocket; deploys below MAX_DEPLOY_ALT_KM;
+	  • the canopy area is sized for the rocket mass so it lands at ≈ 7 m/s on Earth
+	    (this is how NASA engineers do it):  A = 2·m·g / (ρ₀·v²·Cd)
+	  • canopy drag:  F = ½·ρ·v²·Cd·A  (against the velocity), the canopy opens over 1.5 s;
+	  • if the dynamic pressure ½ρv² > MAX_Q the canopy tears (deploy higher and slower);
+	  • while the canopy is open the rocket keeps its bottom towards the planet; after landing the canopy is cut away.
+	  On Mars the air is 60 times thinner — the same canopy only slows to ≈ 55 m/s,
+	  so engine braking is needed as well (as on the real Curiosity / Perseverance missions).
 
-	АВТОПОСАДКА (Місяць та будь-який вакуум): парашут без повітря фізично НЕ працює,
-	  тому P вмикає автоматичне гальмування ДВИГУНОМ (як у Apollo LM / Surveyor): ракета розвертається
-	  соплом до планети, а дросель тримає швидкість спуску v = 3 + 0.06·h (м/с). Витрачає пальне.
+	AUTOLAND (the Moon and any vacuum): a parachute physically does NOT work without air,
+	  so P turns on automatic ENGINE braking (like the Apollo LM / Surveyor): the rocket turns
+	  its nozzle to the planet and the throttle holds a descent speed of v = 3 + 0.06·h (m/s). Uses fuel.
 
-	🧲 НАВЕДЕННЯ НА МАЙДАНЧИК («магніт»): автопосадка сама веде ракету в точку призначення:
-	  Місяць — BeaconPad у кратері, Марс — LandingPad у каньйоні, Земля — майданчик біля стартового столу
-	  (як Falcon 9 на LZ-1). Перевизначити точку: атрибут зони LandingTarget (Vector3)
-	  або деталь Workspace > EarthLandingZone.
-	  Горизонталь: бажана швидкість до цілі v = min(k·d, VH_MAX), корекція a = (v_баж − v)·K
-	  ([ГРА] допомога пілоту — пальне на неї не витрачається).
-	  Вертикаль: спуск сповільнюється, щоб ракета встигла долетіти; далеко від цілі біля
-	  поверхні вона зависає на HOLD_ALT_M і сідає лише над майданчиком.
-	  Купол на Землі теж керований (слабший «магніт», як парафойл).
+	🧲 PAD GUIDANCE ("magnet"): autoland flies the rocket to the target point on its own:
+	  Moon — BeaconPad in the crater, Mars — LandingPad in the canyon, Earth — a pad next to the launch table
+	  (like Falcon 9 at LZ-1). To override the point: zone attribute LandingTarget (Vector3)
+	  or the part Workspace > EarthLandingZone.
+	  Horizontal: desired speed towards the target v = min(k·d, VH_MAX), correction a = (v_des − v)·K
+	  ([GAME] pilot assist — it uses no fuel).
+	  Vertical: the descent slows down so the rocket has time to arrive; far from the target near
+	  the surface it hovers at HOLD_ALT_M and only lands over the pad.
+	  The canopy on Earth is steerable too (a weaker "magnet", like a parafoil).
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -44,22 +44,22 @@ local EDL = {}
 
 local M_PER_STUD = NASAData.Flight.METERS_PER_STUD
 
--- 🧲 Наведення (усе в метрах і м/с)
-local GAIN_POS = 0.35      -- 1/с: бажана швидкість до цілі = 0.35 · відстань
-local GAIN_VEL = 1.2       -- 1/с: як швидко вирівнюємо швидкість
-local VH_MAX = 250         -- м/с: найшвидший горизонтальний переліт
-local A_MAGNET = 25        -- м/с²: сила «магніту» автопосадки
-local A_MAGNET_CHUTE = 8   -- м/с²: керований купол
-local LAND_RADIUS_M = 20   -- м: ближче цієї відстані від центру майданчика можна сідати
-local HOLD_ALT_M = 60      -- м: далеко від цілі нижче не опускаємось
--- На Місяці / Марсі (сфери) ракета часто входить у зону ЗБОКУ чи ЗНИЗУ (планета висить над Землею),
--- а майданчик — на верхівці. Тому «магніт» веде її ВЗДОВЖ СФЕРИ (дугою великого кола),
--- а безпечна висота над сферою зростає з відстанню: над валом кратера та схилами пролітаємо вище.
-local HOLD_PER_M = 0.5     -- м безпечної висоти на кожен метр до цілі (лише сфери)
-local HOLD_MAX_M = 3000    -- м: стеля безпечної висоти
-local CLIMB_MAX = 40       -- м/с: набір висоти до безпечної — без ривків (економимо паливо)
-local EARTH_LZ_OFFSET = Vector3.new(0, 0, 160) -- studs від стартового столу (подалі від вежі та ангара)
-local PAD_NAMES = { Moon = "BeaconPad", Mars = "LandingPad" } -- LandingColliders зони
+-- 🧲 Guidance (everything in metres and m/s)
+local GAIN_POS = 0.35      -- 1/s: desired speed towards the target = 0.35 · distance
+local GAIN_VEL = 1.2       -- 1/s: how fast the velocity is matched
+local VH_MAX = 250         -- m/s: fastest horizontal transfer
+local A_MAGNET = 25        -- m/s²: autoland "magnet" strength
+local A_MAGNET_CHUTE = 8   -- m/s²: steerable canopy
+local LAND_RADIUS_M = 20   -- m: landing is allowed closer than this to the pad centre
+local HOLD_ALT_M = 60      -- m: far from the target we do not go lower
+-- On the Moon / Mars (spheres) the rocket often enters the zone from the SIDE or from BELOW (the planet hangs above Earth),
+-- while the pad is on the top. So the "magnet" flies it ALONG THE SPHERE (on a great-circle arc),
+-- and the safe altitude above the sphere grows with distance: we pass higher over the crater rim and slopes.
+local HOLD_PER_M = 0.5     -- m of safe altitude per metre to the target (spheres only)
+local HOLD_MAX_M = 3000    -- m: safe altitude ceiling
+local CLIMB_MAX = 40       -- m/s: climb to the safe altitude smoothly (saves fuel)
+local EARTH_LZ_OFFSET = Vector3.new(0, 0, 160) -- studs from the launch table (away from the tower and hangar)
+local PAD_NAMES = { Moon = "BeaconPad", Mars = "LandingPad" } -- the zone's LandingColliders
 
 local function setState(flight, state)
 	flight.edl.chute = state
@@ -67,7 +67,7 @@ local function setState(flight, state)
 end
 
 --------------------------------------------------------------------
--- 🧲 Точка призначення: повертає позицію (studs) і «верх» у цій точці
+-- 🧲 Target point: returns the position (studs) and "up" at that point
 --------------------------------------------------------------------
 function EDL.LandingTarget(planetId)
 	if planetId == "Moon" or planetId == "Mars" then
@@ -82,7 +82,7 @@ function EDL.LandingTarget(planetId)
 			local pad = colliders and colliders:FindFirstChild(PAD_NAMES[planetId])
 			if pad and pad:IsA("BasePart") then
 				local up = (pad.Position - globe).Unit
-				-- верхня грань майданчика (деталь може бути повернутим циліндром)
+				-- top face of the pad (the part may be a rotated cylinder)
 				local cf, s = pad.CFrame, pad.Size
 				local half = math.abs(up:Dot(cf.RightVector)) * s.X / 2 + math.abs(up:Dot(cf.UpVector)) * s.Y / 2
 					+ math.abs(up:Dot(cf.LookVector)) * s.Z / 2
@@ -97,7 +97,7 @@ function EDL.LandingTarget(planetId)
 		return pos, (pos - globe).Unit
 	end
 
-	-- Земля: деталь EarthLandingZone або точка поруч ізо стартовим столом
+	-- Earth: the EarthLandingZone part or a point next to the launch table
 	local lz = workspace:FindFirstChild("EarthLandingZone")
 	if lz and lz:IsA("BasePart") then
 		return lz.Position + Vector3.new(0, lz.Size.Y / 2, 0), Vector3.yAxis
@@ -112,7 +112,7 @@ function EDL.LandingTarget(planetId)
 	return Vector3.new(base.X, hit and hit.Position.Y or 0, base.Z), Vector3.yAxis
 end
 
--- Маяк цілі: зелене кільце на майданчику + світловий стовп (бачать усі гравці)
+-- Target beacon: a green ring on the pad + a light pillar (visible to all players)
 local function hideMarker(flight)
 	local m = flight.edl and flight.edl.marker
 	if m then
@@ -145,7 +145,7 @@ local function showMarker(flight, pos, up)
 		p.Parent = folder
 		return p
 	end
-	-- вісь циліндра Roblox — X, тому X = «вгору» планети
+	-- a Roblox cylinder's axis is X, so X = the planet's "up"
 	piece("Ring", Enum.PartType.Cylinder, Vector3.new(0.2, 18, 18), CFrame.fromMatrix(pos + up * 0.15, up, side), 0.55)
 	piece("Pillar", nil, Vector3.new(0.8, 400, 0.8), CFrame.fromMatrix(pos + up * 200, side, up), 0.65)
 	folder.Parent = workspace
@@ -176,15 +176,15 @@ local function setAutoLand(flight, on, planetId)
 	end
 end
 
--- Горизонтальний «магніт». Повертає: прискорення (м/с²), відстань до цілі по горизонталі (м),
--- час дольоту (с)
+-- Horizontal "magnet". Returns: acceleration (m/s²), horizontal distance to the target (m),
+-- time to arrival (s)
 local function magnet(flight, vel, maxAccel)
 	local tgt = flight.edl.target
 	if not tgt then
 		return Vector3.zero, 0, 0
 	end
 	if tgt.globe then
-		-- сфера: відстань = дуга великого кола, напрямок — по дотичній до цілі у точці ракети
+		-- sphere: distance = great-circle arc, direction — tangent towards the target at the rocket's point
 		local a = flight.core.Position - tgt.globe
 		local b = tgt.pos - tgt.globe
 		local upL = a.Unit
@@ -205,7 +205,7 @@ local function magnet(flight, vel, maxAccel)
 	local h = r:Dot(tgt.up)
 	local d = r - tgt.up * h
 	local dist = d.Magnitude
-	-- швидкість, з якої ще встигнемо загальмувати до цілі:  v = √(2·a·d)  (60% сили магніту — запас)
+	-- the speed from which we can still brake to the target:  v = √(2·a·d)  (60% of the magnet strength — margin)
 	local brakeSpeed = math.sqrt(2 * 0.6 * math.max(maxAccel, 0.1) * dist)
 	local speedWanted = math.min(dist * GAIN_POS, brakeSpeed, VH_MAX)
 	local vWanted = dist > 0.5 and -d.Unit * speedWanted or Vector3.zero
@@ -222,7 +222,7 @@ local function stageHasFuel(flight)
 	return stage ~= nil and (stage:GetAttribute("FuelMass") or 0) > 0 and (stage:GetAttribute("ThrustVac") or 0) > 0
 end
 
--- Викликається один раз після FlightPhysics.new
+-- Called once after FlightPhysics.new
 function EDL.Attach(flight)
 	local has = false
 	for _, p in ipairs(flight.model:GetDescendants()) do
@@ -238,12 +238,12 @@ function EDL.Attach(flight)
 end
 
 --------------------------------------------------------------------
--- Візуал купола: діаметр = CANOPY_SCALE × найбільший діаметр ракети (не менше CANOPY_MIN),
--- стропи — Beam до верху ракети. Справжні куполи в ~10 разів ширші за капсулу (Mercury: 1.9 м → 19 м),
--- у грі — 5×, щоб купол вміщався в кадр разом із ракетою.
+-- Canopy visual: diameter = CANOPY_SCALE × the rocket's largest diameter (at least CANOPY_MIN),
+-- the lines are Beams to the top of the rocket. Real canopies are ~10 times wider than the capsule (Mercury: 1.9 m → 19 m),
+-- in the game — 5×, so the canopy fits in the frame together with the rocket.
 local CANOPY_SCALE = 5
 local CANOPY_MIN = 18 -- studs
--- 🔧 BLENDER: сюди можна підставити MeshPart купола замість еліпсоїда
+-- 🔧 BLENDER: a canopy MeshPart can be used here instead of the ellipsoid
 --------------------------------------------------------------------
 local function topOffset(flight, up)
 	local top = 0
@@ -291,7 +291,7 @@ local function buildCanopy(flight)
 	weld.Part1 = dome
 	weld.Parent = dome
 
-	-- стропи: 6 точок на краю купола → верх ракети
+	-- lines: 6 points on the canopy edge → top of the rocket
 	local anchor = Instance.new("Attachment")
 	anchor.Name = "ChuteRiser"
 	anchor.Parent = core
@@ -309,13 +309,13 @@ local function buildCanopy(flight)
 		beam.Color = ColorSequence.new(Color3.fromRGB(230, 230, 230))
 		beam.FaceCamera = true
 		beam.Segments = 1
-		beam.Transparency = NumberSequence.new(1) -- проявляються разом із куполом
+		beam.Transparency = NumberSequence.new(1) -- fade in together with the canopy
 		beam.Parent = dome
 	end
 	flight.edl.canopy = dome
 	flight.edl.riser = anchor
 
-	-- розкриття за 0.8 с
+	-- opens over 0.8 s
 	TweenService:Create(mesh, TweenInfo.new(0.8, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = Vector3.one }):Play()
 	task.delay(0.25, function()
 		for _, b in ipairs(dome:GetChildren()) do
@@ -356,9 +356,9 @@ local function removeCanopy(flight, torn)
 end
 
 --------------------------------------------------------------------
--- Клавіша P. Повертає ok, повідомлення
+-- Key P. Returns ok, message
 --------------------------------------------------------------------
--- Розкриття купола (Земля, Марс). Повертає ok, повідомлення
+-- Canopy deployment (Earth, Mars). Returns ok, message
 local deployChute
 
 local function planetHere(pos)
@@ -389,7 +389,7 @@ function EDL.Activate(flight)
 	local core = flight.core
 	local rho = flight.lastRho or 0
 
-	-- повторне P — вимкнути автопосадку
+	-- pressing P again turns autoland off
 	if st.autoLand then
 		setAutoLand(flight, false)
 		flight:SetAttitudeMode("sas")
@@ -398,7 +398,7 @@ function EDL.Activate(flight)
 
 	local planetId, altM = planetHere(core.Position)
 
-	-- МІСЯЦЬ / МАРС: автопосадка двигуном із наведенням на майданчик
+	-- MOON / MARS: engine autoland with guidance to the pad
 	if planetId == "Moon" or planetId == "Mars" then
 		if not stageHasFuel(flight) then
 			return false, "Autoland needs fuel in the active stage!"
@@ -407,7 +407,7 @@ function EDL.Activate(flight)
 		flight:SetAttitudeMode("radial")
 		local msg = "🔥 AUTOLAND (like the Apollo LM): the rocket will fly to the pad and land by itself."
 			.. targetInfo(flight) .. " P — turn off."
-		-- на Марсі купол допомагає економити пальне (як у Perseverance: парашут + двигуни)
+		-- on Mars the canopy helps save fuel (like Perseverance: parachute + engines)
 		if planetId == "Mars" and st.hasChute and st.chute == "stowed" and rho >= 1e-4
 			and altM <= E.MAX_DEPLOY_ALT_KM * 1000 then
 			local ok, chuteMsg = deployChute(flight, altM, planetId)
@@ -416,7 +416,7 @@ function EDL.Activate(flight)
 		return true, msg
 	end
 
-	-- ЗЕМЛЯ: спершу парашут (якщо є), інакше автопосадка двигуном на майданчик (як Falcon 9)
+	-- EARTH: parachute first (if fitted), otherwise engine autoland to the pad (like Falcon 9)
 	if not (st.hasChute and st.chute == "stowed") then
 		if not stageHasFuel(flight) then
 			if not st.hasChute then
@@ -436,7 +436,7 @@ function EDL.Activate(flight)
 	end
 	local ok, msg = deployChute(flight, altM, "Earth")
 	if ok then
-		-- керований купол: зносить до майданчика
+		-- steerable canopy: drifts towards the pad
 		local pos, up = EDL.LandingTarget("Earth")
 		st.target = { pos = pos, up = up, planet = "Earth" }
 		showMarker(flight, pos, up)
@@ -454,7 +454,7 @@ deployChute = function(flight, altM, planetId)
 			altM / 1000, E.MAX_DEPLOY_ALT_KM)
 	end
 
-	-- швидкісний напір q = ½ρv²: забагато — стропи не витримають
+	-- dynamic pressure q = ½ρv²: too high — the lines will not hold
 	local q = 0.5 * rho * vel.Magnitude ^ 2
 	buildCanopy(flight)
 	if q > E.MAX_Q then
@@ -464,7 +464,7 @@ deployChute = function(flight, altM, planetId)
 			q / 1000, E.MAX_Q / 1000)
 	end
 
-	-- площа купола під масу ракети:  A = 2·m·g₀ / (ρ₀·v²·Cd)
+	-- canopy area for the rocket mass:  A = 2·m·g₀ / (ρ₀·v²·Cd)
 	local mass = flight:MassKg()
 	st.area = 2 * mass * G0 / (RHO0 * E.DESIGN_SPEED ^ 2 * E.CHUTE_CD)
 	st.openT = 0
@@ -477,8 +477,8 @@ deployChute = function(flight, altM, planetId)
 end
 
 --------------------------------------------------------------------
--- КРОК ФІЗИКИ (викликає FlightPhysics). Повертає додаткове прискорення (м/с²)
---   info: vel (м/с), rho, massKg, gVec, up, thrustAvail (Н, на 100% дроселя), altM
+-- PHYSICS STEP (called by FlightPhysics). Returns extra acceleration (m/s²)
+--   info: vel (m/s), rho, massKg, gVec, up, thrustAvail (N, at 100% throttle), altM
 --------------------------------------------------------------------
 function EDL.Step(flight, dt, info)
 	local st = flight.edl
@@ -492,7 +492,7 @@ function EDL.Step(flight, dt, info)
 
 	if st.chute == "open" then
 		if flight.landed then
-			-- після посадки купол відстрілюється, щоб не заважати виходу астронавта
+			-- after landing the canopy is cut away so it does not block the astronaut's exit
 			setState(flight, "cut")
 			removeCanopy(flight)
 			if not st.autoLand then
@@ -504,8 +504,8 @@ function EDL.Step(flight, dt, info)
 			end
 		else
 			st.openT += dt
-			local k = math.clamp(st.openT / 1.5, 0, 1) -- купол наповнюється поступово
-			-- рифлення на Землі: вище REEF_ALT площа менша в (vпосадки / vриф)² разів
+			local k = math.clamp(st.openT / 1.5, 0, 1) -- the canopy inflates gradually
+			-- reefing on Earth: above REEF_ALT the area is (v_landing / v_reef)² times smaller
 			local planetId = PlanetZoneManager.Surface(flight.core.Position)
 			local reefed = planetId == "Earth" and info.altM > E.REEF_ALT_KM * 1000
 			local area = st.area * (reefed and (E.DESIGN_SPEED / E.REEFED_SPEED) ^ 2 or 1)
@@ -527,9 +527,9 @@ function EDL.Step(flight, dt, info)
 				extra = -info.vel.Unit * a
 			end
 			if flight.attitudeMode ~= "radial" then
-				flight:SetAttitudeMode("radial") -- днищем до планети, щоб не перекинутись
+				flight:SetAttitudeMode("radial") -- bottom towards the planet so it does not tip over
 			end
-			-- 🧲 керований купол (без автопосадки — вона має свій, сильніший «магніт»)
+			-- 🧲 steerable canopy (not during autoland — it has its own, stronger "magnet")
 			if st.target and not st.autoLand then
 				local pull, dist = magnet(flight, info.vel, A_MAGNET_CHUTE)
 				extra += pull
@@ -555,47 +555,47 @@ function EDL.Step(flight, dt, info)
 			if flight.attitudeMode ~= "radial" then
 				flight:SetAttitudeMode("radial")
 			end
-			-- цільова швидкість спуску зменшується з висотою:  v = 3 + 0.06·h  (м/с)
-			-- h — від НИЗУ ракети (капсула вище за опори на groundContactM − 4 studs)
+			-- the target descent speed decreases with altitude:  v = 3 + 0.06·h  (m/s)
+			-- h is measured from the BOTTOM of the rocket (the capsule is above the legs by groundContactM − 4 studs)
 			local bottomAltM = math.max(info.altM - (flight.groundContactM - 4 * NASAData.Flight.METERS_PER_STUD), 0)
 			local vR = info.vel:Dot(info.up)
-			-- профіль спуску (м/с): повільний фінальний захід (≤ 18 м/с нижче 600 м), вище — швидше:
-			--   v = 3 + 0.025·h + 0.035·max(h − 600, 0); у зоні підходу (~300 м) ≈ 10 м/с < 15 м/с
-			-- ВИЩЕ — «самогубне гальмування» як у Falcon 9: не повільніше за швидкість, з якої двигун ще
-			-- встигне зупинити ракету:  v = √(2 · ½·(aмакс − g) · h)  (половина запасу тяги — резерв).
-			-- Раніше тут був стеля 120 м/с: з висоти кількох км ракета хвилинами «висіла» на двигуні та
-			-- спалювала паливо зворотного рейсу (на Землі не вистачало вже на фінальних 500 м).
-			--   нижче FINAL_ALT_M — ≤ 10 м/с (ця зона й вирішує «швидкість удару» у FlightPhysics, безпечно ≤ 15),
-			--   вище — рівне гальмування 45% запасу тяги: v = 10 + √(2·0.45·(aмакс − g)·(h − FINAL_ALT_M))
-			local FINAL_ALT_M = 500 -- з запасом: удар FlightPhysics міряє в останніх ~290 м (Земля)
+			-- descent profile (m/s): slow final approach (≤ 18 m/s below 600 m), faster above:
+			--   v = 3 + 0.025·h + 0.035·max(h − 600, 0); in the approach zone (~300 m) ≈ 10 m/s < 15 m/s
+			-- ABOVE — a "suicide burn" like Falcon 9: no slower than the speed from which the engine can still
+			-- stop the rocket:  v = √(2 · ½·(a_max − g) · h)  (half of the thrust margin is kept in reserve).
+			-- There used to be a 120 m/s cap here: from a few km up the rocket "hung" on its engine for minutes and
+			-- burned the return-trip fuel (on Earth there was not enough left for the final 500 m).
+			--   below FINAL_ALT_M — ≤ 10 m/s (this zone decides the "impact speed" in FlightPhysics, safe ≤ 15),
+			--   above — steady braking at 45% of the thrust margin: v = 10 + √(2·0.45·(a_max − g)·(h − FINAL_ALT_M))
+			local FINAL_ALT_M = 500 -- with margin: FlightPhysics measures impact in the last ~290 m (Earth)
 			local gNow = info.gVec.Magnitude
 			local aBrake = info.thrustAvail / math.max(info.massKg, 1) - gNow
 			local descend
 			if bottomAltM <= FINAL_ALT_M then
-				descend = math.min(10, E.AUTOLAND_TOUCHDOWN + 0.05 * bottomAltM) -- 10 м/с, у самому низу 3–5
+				descend = math.min(10, E.AUTOLAND_TOUCHDOWN + 0.05 * bottomAltM) -- 10 m/s, 3–5 at the very bottom
 			elseif aBrake > 0.3 then
 				descend = 10 + math.sqrt(2 * 0.45 * aBrake * (bottomAltM - FINAL_ALT_M))
 			else
-				descend = math.min(10 + 0.05 * (bottomAltM - FINAL_ALT_M), 120) -- тяги замало: обережно
+				descend = math.min(10 + 0.05 * (bottomAltM - FINAL_ALT_M), 120) -- not enough thrust: be careful
 			end
 			descend = math.max(descend, E.AUTOLAND_TOUCHDOWN)
-			-- 🧲 магніт: тягнемо до майданчика і не даємо сісти набік
+			-- 🧲 magnet: pull towards the pad and do not let it land on its side
 			if st.target then
 				local pull, dist, eta = magnet(flight, info.vel, A_MAGNET)
 				extra += pull
 				flight.model:SetAttribute("AutoLandTargetM", dist)
 				if dist > LAND_RADIUS_M then
-					-- спускаємось не швидше, ніж встигнемо долетіти, а біля землі — зависаємо
+					-- descend no faster than we can arrive, and hover near the ground
 					local hold = HOLD_ALT_M
 					if st.target.globe then
 						hold = math.clamp(dist * HOLD_PER_M, HOLD_ALT_M, HOLD_MAX_M)
 					else
-						-- Земля: далеко від майданчика летимо вище (вежа, ангар, рельєф)
+						-- Earth: fly higher far from the pad (tower, hangar, terrain)
 						hold = math.clamp(dist * 0.1, HOLD_ALT_M, 800)
 					end
 					descend = math.min(descend, math.max(bottomAltM - hold, 0) / math.max(eta, 0.5))
 					if bottomAltM < hold then
-						descend = math.max((bottomAltM - hold) * 0.3, -CLIMB_MAX) -- − = набрати висоту
+						descend = math.max((bottomAltM - hold) * 0.3, -CLIMB_MAX) -- negative = climb
 					end
 				end
 			end
@@ -605,8 +605,8 @@ function EDL.Step(flight, dt, info)
 			local aMax = info.thrustAvail / math.max(info.massKg, 1)
 			local throttle = 0
 			if aligned and aMax > 0 then
-				local hover = info.gVec.Magnitude / aMax -- дросель, що тримає ракету на місці
-				-- додаткове прискорення = 0.5 · (цільова − фактична швидкість)
+				local hover = info.gVec.Magnitude / aMax -- throttle that holds the rocket in place
+				-- extra acceleration = 0.5 · (target − actual speed)
 				throttle = math.clamp(hover + (target - vR) * 2.0 / aMax, 0, 1)
 			end
 			flight:SetThrottle(throttle)
@@ -615,8 +615,8 @@ function EDL.Step(flight, dt, info)
 	return extra
 end
 
--- КРОК 3 (EVA): астронавт вийшов, поки ракета зависала низько над поверхнею —
--- двигун сам м'яко садить її ВЕРТИКАЛЬНО, без «магніту» до майданчика
+-- STEP 3 (EVA): the astronaut left while the rocket was hovering low above the surface —
+-- the engine gently sets it down VERTICALLY on its own, without the "magnet" to the pad
 function EDL.HoldLanding(flight)
 	local st = flight.edl
 	if not st or flight.landed then

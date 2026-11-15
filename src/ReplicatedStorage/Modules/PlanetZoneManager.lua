@@ -1,17 +1,17 @@
 --[[
-	PlanetZoneManager (ModuleScript, СПІЛЬНИЙ — сервер і клієнт)
-	Місце: ReplicatedStorage > Modules > PlanetZoneManager
+	PlanetZoneManager (ModuleScript, SHARED — server and client)
+	Location: ReplicatedStorage > Modules > PlanetZoneManager
 
-	Планетарні зони (Workspace > Planets > MoonZone / MarsZone). Кожна зона — це великий глобус
-	(орієнтир у космосі) і посадкова ділянка на його верхівці (кратер / каньйон).
-	Атрибути зони: Planet ("Moon"/"Mars"), GlobeCenter, GlobeRadius, Center, FloorY.
+	Planet zones (Workspace > Planets > MoonZone / MarsZone). Each zone is a large globe
+	(a landmark in space) with a landing site on its top (crater / canyon).
+	Zone attributes: Planet ("Moon"/"Mars"), GlobeCenter, GlobeRadius, Center, FloorY.
 
-	Вплив планети f = 0…1 залежить від висоти над поверхнею глобуса:
-	  ближче INNER — повне тяжіння планети, далі OUTER — земне, між ними плавний перехід.
-	Це УМОВНІ зони для гри: справжній Місяць за 384 400 км, Марс — за десятки мільйонів км.
+	Planet influence f = 0…1 depends on the altitude above the globe surface:
+	  closer than INNER — full planet gravity, beyond OUTER — Earth gravity, smooth blend in between.
+	These are GAME zones: the real Moon is 384,400 km away, Mars tens of millions of km.
 
-	Напрямок "вниз" лишається −Y скрізь: тому сідати і ходити можна лише на верхівці глобуса
-	(там і стоїть ділянка) — це свідоме спрощення, щоб камера і фізика Roblox працювали стабільно.
+	"Down" stays −Y everywhere: so you can only land and walk on the top of the globe
+	(where the landing site is) — a deliberate simplification so the Roblox camera and physics stay stable.
 ]]
 
 local NASAData = require(script.Parent:WaitForChild("NASAData"))
@@ -23,19 +23,19 @@ PlanetZoneManager.CONFIG = {
 	Moon = {
 		name = "Moon",
 		nameOn = "THE MOON",
-		gravity = NASAData.Planets.Moon.surfaceGravity,   -- 1.62 м/с² ≈ 0.16 g
-		airDensity = 0,                                   -- вакуум: опору немає
+		gravity = NASAData.Planets.Moon.surfaceGravity,   -- 1.62 m/s² ≈ 0.16 g
+		airDensity = 0,                                   -- vacuum: no drag
 		scaleHeightM = 0,
-		inner = 500,                                      -- studs над поверхнею глобуса: повний вплив
-		outer = 1200,                                     -- далі — вже не впливає
+		inner = 500,                                      -- studs above the globe surface: full influence
+		outer = 1200,                                     -- beyond this — no influence
 		color = Color3.fromRGB(240, 190, 40),
 	},
 	Mars = {
 		name = "Mars",
 		nameOn = "MARS",
-		gravity = NASAData.Planets.Mars.surfaceGravity,   -- 3.72 м/с² ≈ 0.38 g
-		airDensity = NASAData.Planets.Mars.atmosphereDensity, -- 0.020 кг/м³ — у 60 разів рідше за земне
-		scaleHeightM = 11100,                             -- [NASA] шкала висот атмосфери Марса
+		gravity = NASAData.Planets.Mars.surfaceGravity,   -- 3.72 m/s² ≈ 0.38 g
+		airDensity = NASAData.Planets.Mars.atmosphereDensity, -- 0.020 kg/m³ — 60 times thinner than Earth's
+		scaleHeightM = 11100,                             -- [NASA] Mars atmospheric scale height
 		inner = 500,
 		outer = 1300,
 		color = Color3.fromRGB(255, 150, 90),
@@ -70,7 +70,7 @@ function PlanetZoneManager.GetZone(id)
 	return nil
 end
 
--- Найближча зона: повертає zoneModel, id, f (0…1), висота над ділянкою (м)
+-- Nearest zone: returns zoneModel, id, f (0…1), altitude above the site (m)
 function PlanetZoneManager.Locate(pos)
 	local best, bestId, bestF = nil, nil, 0
 	for _, z in ipairs(getZones()) do
@@ -85,12 +85,12 @@ function PlanetZoneManager.Locate(pos)
 	if not best then
 		return nil, nil, 0, nil
 	end
-	-- висота над поверхнею СФЕРИ (працює з будь-якого боку планети)
+	-- altitude above the SPHERE surface (works from any side of the planet)
 	local altitudeM = math.max((pos - best:GetAttribute("GlobeCenter")).Magnitude - best:GetAttribute("GlobeRadius"), 0) * M_PER_STUD
 	return best, bestId, bestF, altitudeM
 end
 
--- g біля планети: плавний перехід від земного g до g планети
+-- g near a planet: smooth blend from Earth g to the planet's g
 function PlanetZoneManager.Gravity(pos, gEarth)
 	local z, id, f = PlanetZoneManager.Locate(pos)
 	if not z then
@@ -99,11 +99,11 @@ function PlanetZoneManager.Gravity(pos, gEarth)
 	return gEarth + (PlanetZoneManager.CONFIG[id].gravity - gEarth) * f
 end
 
--- СФЕРИЧНА ГРАВІТАЦІЯ (вектор, м/с²).
---   Біля Землі світ плаский: g = (0, −gEarth, 0).
---   Біля Місяця/Марса — до ЦЕНТРУ глобуса з будь-якого боку:
---       g = gповерхні · (R / r)²,   напрямок (центр − точка).Unit
---   Між ними — плавний перехід за впливом f (див. Locate).
+-- SPHERICAL GRAVITY (vector, m/s²).
+--   Near Earth the world is flat: g = (0, −gEarth, 0).
+--   Near the Moon/Mars — towards the globe CENTRE from any side:
+--       g = g_surface · (R / r)²,   direction (centre − point).Unit
+--   In between — smooth blend by influence f (see Locate).
 function PlanetZoneManager.GravityVector(pos, gEarth)
 	local earth = Vector3.new(0, -gEarth, 0)
 	local z, id, f = PlanetZoneManager.Locate(pos)
@@ -118,8 +118,8 @@ function PlanetZoneManager.GravityVector(pos, gEarth)
 	return earth:Lerp(planet, f)
 end
 
--- Над якою поверхнею ми зараз і на якій висоті (м): "Moon" / "Mars" біля планети, інакше "Earth"
--- (земля — на рівні Y = 0).
+-- Which surface we are over and at what altitude (m): "Moon" / "Mars" near a planet, otherwise "Earth"
+-- (the ground is at Y = 0).
 function PlanetZoneManager.Surface(pos)
 	local z, id, f, altitudeM = PlanetZoneManager.Locate(pos)
 	if z and f > 0.3 then
@@ -128,13 +128,13 @@ function PlanetZoneManager.Surface(pos)
 	return "Earth", math.max(pos.Y, 0) * M_PER_STUD
 end
 
--- "Верх" у цій точці: від центру планети (або +Y біля Землі)
+-- "Up" at this point: away from the planet centre (or +Y near Earth)
 function PlanetZoneManager.UpAt(pos)
 	local g = PlanetZoneManager.GravityVector(pos, 9.807)
 	return g.Magnitude > 1e-6 and -g.Unit or Vector3.yAxis
 end
 
--- Щільність повітря: земна зникає, а в атмосфері Марса ρ = ρ0 · e^(−h/H)
+-- Air density: Earth's fades out, and in the Mars atmosphere ρ = ρ0 · e^(−h/H)
 function PlanetZoneManager.AirDensity(pos, rhoEarth)
 	local z, id, f, altitudeM = PlanetZoneManager.Locate(pos)
 	if not z then

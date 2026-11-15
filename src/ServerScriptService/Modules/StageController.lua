@@ -1,18 +1,18 @@
 --[[
-	StageController (ModuleScript, СЕРВЕР)
-	Місце: ServerScriptService > Modules > StageController
+	StageController (ModuleScript, SERVER)
+	Location: ServerScriptService > Modules > StageController
 
-	Відстріл ступенів і скидання головного обтічника. Викликається з FlightServer
-	(RemoteEvent TriggerStage / JettisonFairing) — сервер сам перевіряє, чи це можливо.
+	Stage separation and payload fairing jettison. Called from FlightServer
+	(RemoteEvent TriggerStage / JettisonFairing) — the server itself checks whether it is possible.
 
-	ВІДСТРІЛ СТУПЕНЯ k:
-	  1. Вимикаємо двигуни k (полум'я, світло).
-	  2. Розриваємо SeparationWeld у папці Decoupler<k>.
-	  3. Папки Stage<k> і Decoupler<k> виносимо з моделі ракети в окрему модель-уламок
-	     → їхня маса більше не рахується в FlightPhysics:MassKg().
-	  4. Уламку даємо імпульс назад:  J = m · Δv  (ApplyImpulse), а ракеті — маленький вперед.
-	  5. Через 30 с уламок видаляється (Debris).
-	  6. Активним стає ступінь k+1, його двигуни запалюються.
+	SEPARATING STAGE k:
+	  1. Shut down the engines of k (flame, light).
+	  2. Break the SeparationWeld in the Decoupler<k> folder.
+	  3. Move the Stage<k> and Decoupler<k> folders out of the rocket model into a separate debris model
+	     → their mass is no longer counted in FlightPhysics:MassKg().
+	  4. Give the debris an impulse backwards:  J = m · Δv  (ApplyImpulse), and the rocket a small one forwards.
+	  5. After 30 s the debris is removed (Debris).
+	  6. Stage k+1 becomes active and its engines ignite.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -25,12 +25,12 @@ local F = NASAData.Flight
 local M_PER_STUD = F.METERS_PER_STUD
 
 --------------------------------------------------------------------
--- ⚙️ НАЛАШТУВАННЯ
+-- ⚙️ SETTINGS
 --------------------------------------------------------------------
-local STAGE_SEPARATION_SPEED = 4     -- studs/с: з якою швидкістю ступінь відходить назад (пружини/піроболти)
-local ROCKET_KICK_SPEED = 0.5        -- studs/с: віддача на ракету (третій закон Ньютона)
-local FAIRING_SIDE_SPEED = 6         -- studs/с: розведення половинок обтічника вбік
-local DEBRIS_LIFETIME = 30           -- с: потім уламки видаляються (оптимізація)
+local STAGE_SEPARATION_SPEED = 4     -- studs/s: how fast the stage moves back (springs/pyro bolts)
+local ROCKET_KICK_SPEED = 0.5        -- studs/s: recoil on the rocket (Newton's third law)
+local FAIRING_SIDE_SPEED = 6         -- studs/s: sideways separation of the fairing halves
+local DEBRIS_LIFETIME = 30           -- s: then the debris is removed (optimisation)
 
 local StageController = {}
 
@@ -41,7 +41,7 @@ if not debrisFolder then
 	debrisFolder.Parent = workspace
 end
 
--- Переносить групи в нову модель-уламок. Повертає (модель, головна деталь)
+-- Moves groups into a new debris model. Returns (model, main part)
 local function detach(name, folders)
 	local debrisModel = Instance.new("Model")
 	debrisModel.Name = name
@@ -60,7 +60,7 @@ local function detach(name, folders)
 	return debrisModel, root
 end
 
--- Уламок падає зі СПРАВЖНЬОЮ гравітацією польоту (як і ракета), а не з Roblox-овими 196 studs/с²
+-- Debris falls with the REAL flight gravity (like the rocket), not with Roblox's 196 studs/s²
 local function addFallForce(root)
 	local att = Instance.new("Attachment")
 	att.Name = "FallCore"
@@ -75,8 +75,8 @@ local function addFallForce(root)
 end
 
 --------------------------------------------------------------------
--- ВІДСТРІЛ СТУПЕНЯ
---   flight — об'єкт FlightPhysics. Повертає ok, повідомлення
+-- STAGE SEPARATION
+--   flight — a FlightPhysics object. Returns ok, message
 --------------------------------------------------------------------
 function StageController.TriggerStage(flight)
 	local model = flight.model
@@ -88,15 +88,15 @@ function StageController.TriggerStage(flight)
 	local weld = decoupler:FindFirstChild("SeparationWeld")
 	local up = flight.coreAtt.WorldCFrame.UpVector
 
-	-- 1) двигуни відпрацьованого ступеня — вимкнути
+	-- 1) shut down the engines of the spent stage
 	flight:Shutdown()
 
-	-- 2) розрив зв'язку
+	-- 2) break the link
 	if weld then
 		weld:Destroy()
 	end
 
-	-- 3) винести ступінь + декуплер з моделі
+	-- 3) move the stage + decoupler out of the model
 	local folders = { decoupler }
 	local stage = model:FindFirstChild("Stage" .. k)
 	if stage then
@@ -104,7 +104,7 @@ function StageController.TriggerStage(flight)
 	end
 	local _, root = detach("SpentStage" .. k, folders)
 
-	-- 4) імпульс відділення:  J = m · Δv  (відпрацьований ступінь — вниз/назад)
+	-- 4) separation impulse:  J = m · Δv  (the spent stage goes down/back)
 	if root then
 		root:SetNetworkOwner(nil)
 		root:ApplyImpulse(-up * root.AssemblyMass * STAGE_SEPARATION_SPEED)
@@ -113,7 +113,7 @@ function StageController.TriggerStage(flight)
 	end
 	flight.core:ApplyImpulse(up * flight.core.AssemblyMass * ROCKET_KICK_SPEED)
 
-	-- 6) наступний ступінь
+	-- 6) next stage
 	flight:SetActiveStage(k + 1)
 	if flight:Ignite() then
 		return true, "Stage " .. k .. " separated. Stage " .. (k + 1) .. " ignition!"
@@ -122,8 +122,8 @@ function StageController.TriggerStage(flight)
 end
 
 --------------------------------------------------------------------
--- СКИДАННЯ ОБТІЧНИКА: дві половинки розводяться в боки
---   Дозволено лише високо: в щільному повітрі тепло та опір пошкодили б корисний вантаж.
+-- FAIRING JETTISON: the two halves move apart sideways
+--   Only allowed high up: in dense air heat and drag would damage the payload.
 --------------------------------------------------------------------
 function StageController.JettisonFairing(flight)
 	local model = flight.model
@@ -148,9 +148,9 @@ function StageController.JettisonFairing(flight)
 			local _, root = detach(folder.Name, { folder })
 			if root then
 				root:SetNetworkOwner(nil)
-				local side = cf.RightVector * sign -- половинки стоять по -X / +X від осі
+				local side = cf.RightVector * sign -- the halves sit at -X / +X from the axis
 				root:ApplyImpulse((side * FAIRING_SIDE_SPEED + cf.UpVector * 1) * root.AssemblyMass)
-				-- половинка "відкидається" верхом назовні
+				-- the half "flips" outward at the top
 				root:ApplyAngularImpulse(cf.LookVector * -sign * root.AssemblyMass * 3)
 				addFallForce(root)
 			end

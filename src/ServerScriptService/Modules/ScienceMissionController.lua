@@ -1,18 +1,18 @@
 --[[
-	ScienceMissionController (ModuleScript, СЕРВЕР)
-	Місце: ServerScriptService > Modules > ScienceMissionController
+	ScienceMissionController (ModuleScript, SERVER)
+	Location: ServerScriptService > Modules > ScienceMissionController
 
-	Зона місячної місії (Workspace > Planets > MoonZone): кратер Lunar_Crater_Rim на висоті 100 км,
-	всередині 3 маяки (Target_CraterBeacon + Beacons/Beacon1..3) та льодове родовище (Target_IceDeposit).
+	Lunar mission zone (Workspace > Planets > MoonZone): the Lunar_Crater_Rim crater at 100 km altitude,
+	with 3 beacons inside (Target_CraterBeacon + Beacons/Beacon1..3) and an ice deposit (Target_IceDeposit).
 
-	Наукові завдання (працюють, лише якщо прилад стоїть на ракеті і вистачає енергії):
-	  theodolite — лазерні промені (Beam) на 3 маяки: L, кут α, Δh = L·sin α
-	  scan       — сканування рельєфу хвилями + справжні виміри кратера променями (Raycast)
-	  drill      — після посадки біля льоду: шнек опускається, зразок льоду
-	Дані зараховуються (нагорода $), лише якщо є антена — інакше їх не передати на Землю.
+	Science tasks (work only if the instrument is on the rocket and there is enough power):
+	  theodolite — laser beams (Beam) to 3 beacons: L, angle α, Δh = L·sin α
+	  scan       — terrain scan with waves + real crater measurements with rays (Raycast)
+	  drill      — after landing near the ice: the auger goes down, an ice sample
+	Data counts (with a $ reward) only if there is an antenna — otherwise it cannot be sent to Earth.
 
-	Тяжіння: біля кратера g плавно змінюється від земного до місячного (1.62 м/с²) —
-	це УМОВНА "зона Місяця" для гри (справжній Місяць за 384 400 км).
+	Gravity: near the crater g changes smoothly from Earth's to the Moon's (1.62 m/s²) —
+	this is a GAME "Moon zone" (the real Moon is 384,400 km away).
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -30,13 +30,13 @@ local MOON_G = NASAData.Planets.Moon.surfaceGravity
 local Science = {}
 
 --------------------------------------------------------------------
--- ⚙️ НАЛАШТУВАННЯ
+-- ⚙️ SETTINGS
 --------------------------------------------------------------------
-Science.SCIENCE_RANGE = 1500   -- studs (≈ 19 км) від центру кратера: звідси прилади "бачать" ціль
-Science.GRAVITY_INNER = 600    -- ближче — повне місячне тяжіння
-Science.GRAVITY_OUTER = 1300   -- далі — земне
-Science.DRILL_RADIUS = 80      -- studs від центру льодового родовища (≈ 1 км)
-Science.REWARD = 10000         -- [ГРА] $ за кожен набір даних, переданий на Землю
+Science.SCIENCE_RANGE = 1500   -- studs (≈ 19 km) from the crater centre: instruments "see" the target from here
+Science.GRAVITY_INNER = 600    -- closer — full lunar gravity
+Science.GRAVITY_OUTER = 1300   -- farther — Earth gravity
+Science.DRILL_RADIUS = 80      -- studs from the centre of the ice deposit (≈ 1 km)
+Science.REWARD = 10000         -- [GAME] $ for each data set sent to Earth
 Science.TITLES = {
 	theodolite = "Laser triangulation",
 	scan = "Terrain scan",
@@ -63,13 +63,13 @@ local function beacons()
 end
 
 --------------------------------------------------------------------
--- Зона та тяжіння
+-- Zone and gravity
 --------------------------------------------------------------------
 function Science.DistanceStuds(pos)
 	return center and (pos - center).Magnitude or math.huge
 end
 
--- g біля кратера: плавний перехід від земного до місячного (див. коментар у заголовку)
+-- g near the crater: smooth blend from Earth to Moon (see the header comment)
 function Science.Gravity(pos, gEarth)
 	if not center then
 		return gEarth
@@ -79,9 +79,9 @@ function Science.Gravity(pos, gEarth)
 	return gEarth + (MOON_G - gEarth) * t
 end
 
--- Чи стоїть ракета на поверхні кратера (промінь вниз від капсули)
--- Чи стоїть ракета на поверхні будь-якого небесного тіла з Workspace > Planets (Місяць, Марс, астероїд).
--- ray — вектор променя (вздовж гравітації, тобто до центру планети) або довжина променя вниз.
+-- Whether the rocket stands on the crater surface (ray down from the capsule)
+-- Whether the rocket stands on the surface of any celestial body in Workspace > Planets (Moon, Mars, asteroid).
+-- ray — the ray vector (along gravity, i.e. to the planet centre) or the length of a downward ray.
 function Science.SurfaceBelow(core, ray)
 	if typeof(ray) == "number" then
 		ray = Vector3.new(0, -ray, 0)
@@ -109,11 +109,11 @@ local function setBeacons(on)
 	end
 end
 
--- Викликається ~2 рази на секунду: оновлює атрибути для HUD і підсвічує маяки, коли ракета поруч
+-- Called ~2 times per second: updates HUD attributes and highlights the beacons when the rocket is near
 local PlanetZoneManager = require(modules:WaitForChild("PlanetZoneManager"))
 
 function Science.Update(flight)
-	-- найближча ціль (ділянка Місяця або Марса) для HUD
+	-- nearest target (Moon or Mars site) for the HUD
 	local bestName, bestD = nil, math.huge
 	for _, z in ipairs(PlanetZoneManager.GetZones()) do
 		local c = z:GetAttribute("Center")
@@ -147,7 +147,7 @@ function Science.Leave(flight)
 end
 
 --------------------------------------------------------------------
--- Спорядження ракети та енергобаланс
+-- Rocket equipment and power balance
 --------------------------------------------------------------------
 function Science.Loadout(player)
 	local ok, raw = pcall(HttpService.JSONDecode, HttpService, player:GetAttribute("RocketDesign") or "")
@@ -165,13 +165,13 @@ function Science.Loadout(player)
 		drill = has("ice_drill"),
 		antenna = has("antenna_low") or has("antenna_medium") or has("antenna_high"),
 		battery = has("battery"),
-		power = stats.power, -- Вт: плюс — виробляє, мінус — споживає (сума всіх деталей)
+		power = stats.power, -- W: positive — produces, negative — consumes (sum of all parts)
 		design = design,
 		stats = stats,
 	}
 end
 
--- Прилади працюють, якщо енергобаланс ≥ 0 або є акумулятор (запас 3000 Вт·год)
+-- Instruments work if the power balance is ≥ 0 or there is a battery (3000 Wh reserve)
 function Science.PowerOk(loadout)
 	return loadout.power >= 0 or loadout.battery
 end
@@ -195,9 +195,9 @@ local function checkRange(flight)
 end
 
 --------------------------------------------------------------------
--- 1) Лазерний теодоліт: промені на 3 маяки
---   L — відстань до маяка, α — кут нижче горизонту  →  Δh = L · sin α (наскільки маяк нижче)
---   За трьома маяками з відомими позиціями обчислюється положення ракети (тріангуляція).
+-- 1) Laser theodolite: beams to 3 beacons
+--   L — distance to the beacon, α — angle below the horizon  →  Δh = L · sin α (how much lower the beacon is)
+--   From three beacons with known positions the rocket position is computed (triangulation).
 --------------------------------------------------------------------
 local RUN = {}
 
@@ -226,8 +226,8 @@ RUN.theodolite = function(flight)
 		Debris:AddItem(a1, 8)
 
 		local v = b.Position - src.Position
-		local L = v.Magnitude * M_PER_STUD                           -- м
-		local alpha = math.asin(math.clamp(-v.Y / v.Magnitude, -1, 1))  -- рад, вниз від горизонту
+		local L = v.Magnitude * M_PER_STUD                           -- m
+		local alpha = math.asin(math.clamp(-v.Y / v.Magnitude, -1, 1))  -- rad, down from the horizon
 		local dh = L * math.sin(alpha)                                 -- Δh = L·sin α
 		table.insert(heights, dh)
 		table.insert(lines, string.format("Beacon %d: L = %.2f km, α = %.1f° → Δh = L·sin α = %.2f km", i, L / 1000, math.deg(alpha), dh / 1000))
@@ -243,7 +243,7 @@ RUN.theodolite = function(flight)
 end
 
 --------------------------------------------------------------------
--- 2) Сканер рельєфу: хвилі + вимір кратера променями (16 напрямків від центру)
+-- 2) Terrain scanner: waves + crater measurement with rays (16 directions from the centre)
 --------------------------------------------------------------------
 local function wave(origin)
 	local ball = Instance.new("Part")
@@ -320,7 +320,7 @@ RUN.scan = function(flight)
 end
 
 --------------------------------------------------------------------
--- 3) Бур: шнек (Auger + Bit з меша Sci_IceDrill) опускається і піднімається
+-- 3) Drill: the auger (Auger + Bit from the Sci_IceDrill mesh) goes down and up
 --------------------------------------------------------------------
 RUN.drill = function(flight)
 	local parts, welds, homes = {}, {}, {}
@@ -329,7 +329,7 @@ RUN.drill = function(flight)
 			table.insert(parts, d)
 		end
 	end
-	-- тимчасово від'єднуємо шнек від ракети, інакше його рух рухав би всю ракету
+	-- temporarily detach the auger from the rocket, otherwise its motion would move the whole rocket
 	for _, w in ipairs(flight.model:GetDescendants()) do
 		if w:IsA("WeldConstraint") and (table.find(parts, w.Part0) or table.find(parts, w.Part1)) then
 			w.Enabled = false
@@ -370,7 +370,7 @@ RUN.drill = function(flight)
 		for _, p in ipairs(parts) do
 			if p.Parent then
 				local home = homes[p]
-				-- повертаємо відносно нинішнього положення ракети (вона могла трохи осісти)
+				-- restore relative to the rocket's current position (it may have settled a little)
 				p.CFrame = home
 				p.Anchored = false
 			end
@@ -408,16 +408,16 @@ RUN.drill = function(flight)
 	if not ok then
 		error(err, 0)
 	end
-	local holeM = depth * NASAData.Constants.METERS_PER_STUD -- бур — деталь ракети, масштаб 0.28 м/stud
+	local holeM = depth * NASAData.Constants.METERS_PER_STUD -- the drill is a rocket part, scale 0.28 m/stud
 	return string.format("🧊 Drilled %.1f m of regolith. Ice sample: %.1f kg, H₂O ≈ %d%%.\n"
 		.. "Water means drinking water, oxygen and hydrogen fuel for a future base.",
 		holeM, 0.8 + math.random() * 0.8, math.random(88, 96))
 end
 
 --------------------------------------------------------------------
--- ЗАПУСК ЗАВДАННЯ
+-- STARTING A TASK
 --   kind: "theodolite" | "scan" | "drill";  notify(player, text, isError)
---   Повертає ok, повідомлення. Результат приходить пізніше через notify.
+--   Returns ok, message. The result arrives later via notify.
 --------------------------------------------------------------------
 function Science.Run(flight, player, kind, notify)
 	if not RUN[kind] then

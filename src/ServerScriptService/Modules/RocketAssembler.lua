@@ -1,32 +1,32 @@
 --[[
-	RocketAssembler (ModuleScript, СЕРВЕР)
-	Місце: ServerScriptService > Modules > RocketAssembler
-	(на сервері, а не в ReplicatedStorage: клієнти не бачать і не можуть читати цей код)
+	RocketAssembler (ModuleScript, SERVER)
+	Location: ServerScriptService > Modules > RocketAssembler
+	(on the server, not in ReplicatedStorage: clients cannot see or read this code)
 
-	Збирає 3D-ракету з креслення (RocketMath.Layout) на сірих примітивах (Greybox):
+	Builds a 3D rocket from the blueprint (RocketMath.Layout) out of grey primitives (Greybox):
 
-	  Rocket_<ім'я> (Model, PrimaryPart = капсула з Attachment "FlightCore")
-	  ├─ Stage1       (Folder)  двигуни + баки нижнього ступеня
-	  ├─ Decoupler1   (Folder)  кільце + SeparationWeld (його розриває StageController)
+	  Rocket_<name> (Model, PrimaryPart = capsule with Attachment "FlightCore")
+	  ├─ Stage1       (Folder)  engines + tanks of the bottom stage
+	  ├─ Decoupler1   (Folder)  ring + SeparationWeld (broken by StageController)
 	  ├─ Stage2 …      (Folder)
-	  ├─ Payload      (Folder)  капсула, конус, бічні прилади, підпис
-	  ├─ FairingLeft  (Folder)  половинка обтічника + SeparationWeld
+	  ├─ Payload      (Folder)  capsule, cone, side instruments, label
+	  ├─ FairingLeft  (Folder)  fairing half + SeparationWeld
 	  └─ FairingRight (Folder)
 
-	Атрибути папок (читає FlightPhysics):
-	  усі групи:  DryMass (кг)
-	  StageN:      FuelMass, FuelCapacity (кг), Thrust / ThrustVac (Н), Isp / IspVac (с), EngineId
-	Атрибути моделі: OwnerUserId, State ("Hangar" | "OnPad" | "Flight"), StageCount, ActiveStage,
-	  BasePosition (Vector3 — центр низу ракети), PadY, HasFairing
+	Folder attributes (read by FlightPhysics):
+	  all groups:  DryMass (kg)
+	  StageN:      FuelMass, FuelCapacity (kg), Thrust / ThrustVac (N), Isp / IspVac (s), EngineId
+	Model attributes: OwnerUserId, State ("Hangar" | "OnPad" | "Flight"), StageCount, ActiveStage,
+	  BasePosition (Vector3 — centre of the rocket bottom), PadY, HasFairing
 
-	Точки кріплення (Attachment) на кожній деталі:
-	  BottomMount / TopMount — низ і верх модуля по осі (орієнтація: +Y = вгору ракети)
-	  NozzlePoint            — зріз сопла (+Y дивиться ВНИЗ, туди летить полум'я)
-	  SideMount              — бічне кріплення (RCS, антени, наукові прилади)
+	Mount points (Attachment) on every part:
+	  BottomMount / TopMount — bottom and top of the module on the axis (orientation: +Y = rocket up)
+	  NozzlePoint            — nozzle exit (+Y points DOWN, where the flame goes)
+	  SideMount              — side mount (RCS, antennas, science instruments)
 
-	🔧 BLENDER: коли з'являться MeshPart, додай у кожен меш Attachment "BottomMount" у тій самій
-	точці (низ модуля) і виклич RocketAssembler.ReplaceVisual(сіраДеталь, шаблонМеша).
-	Фізика від цього НЕ змінюється: маси беруться з атрибутів, а не з розміру деталей.
+	🔧 BLENDER: when MeshParts are ready, add an Attachment "BottomMount" to each mesh at the same
+	point (module bottom) and call RocketAssembler.ReplaceVisual(greyPart, meshTemplate).
+	Physics does NOT change: masses come from attributes, not from part sizes.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -43,7 +43,7 @@ local Modules = NASAData.Modules
 local RocketAssembler = {}
 
 --------------------------------------------------------------------
--- Групи зіткнень: відділені ступені та обтічник не штовхають ракету
+-- Collision groups: separated stages and the fairing do not push the rocket
 --------------------------------------------------------------------
 RocketAssembler.ROCKET_GROUP = "Rocket"
 RocketAssembler.DEBRIS_GROUP = "RocketDebris"
@@ -57,14 +57,14 @@ PhysicsService:CollisionGroupSetCollidable(RocketAssembler.ROCKET_GROUP, RocketA
 PhysicsService:CollisionGroupSetCollidable(RocketAssembler.DEBRIS_GROUP, RocketAssembler.DEBRIS_GROUP, false)
 
 --------------------------------------------------------------------
--- Базові деталі
+-- Basic parts
 --------------------------------------------------------------------
-local UP = CFrame.Angles(0, 0, math.rad(90)) -- вісь циліндра в Roblox — X, повертаємо вгору
+local UP = CFrame.Angles(0, 0, math.rad(90)) -- a Roblox cylinder's axis is X, rotate it upright
 
 local function newPart(parent, name, size, cframe, color, material, canCollide, shape)
 	local p = Instance.new("Part")
 	if shape then
-		p.Shape = shape -- форму ставимо ДО розміру, щоб Roblox не змінив Size
+		p.Shape = shape -- set the shape BEFORE the size so Roblox does not change Size
 	end
 	p.Name = name
 	p.Anchored = true
@@ -80,13 +80,13 @@ local function newPart(parent, name, size, cframe, color, material, canCollide, 
 	return p
 end
 
--- Вертикальний циліндр: низ на висоті y0, висота h, діаметр d
+-- Vertical cylinder: bottom at height y0, height h, diameter d
 local function vCylinder(parent, name, base, x, z, y0, h, d, color, material)
 	return newPart(parent, name, Vector3.new(h, d, d),
 		CFrame.new(base + Vector3.new(x, y0 + h / 2, z)) * UP, color, material, true, Enum.PartType.Cylinder)
 end
 
--- Конус-"сходинки": діаметр плавно змінюється від d0 (низ) до d1 (верх). Повертає всі частини.
+-- Stepped cone: the diameter changes smoothly from d0 (bottom) to d1 (top). Returns all pieces.
 local function taper(parent, name, base, y0, h, d0, d1, color, material, segments)
 	local parts = {}
 	for k = 1, segments do
@@ -97,7 +97,7 @@ local function taper(parent, name, base, y0, h, d0, d1, color, material, segment
 	return parts
 end
 
--- Attachment у світовій точці. Орієнтація: +Y = вгору (або вниз, якщо flipDown), незалежно від повороту деталі
+-- Attachment at a world point. Orientation: +Y = up (or down if flipDown), regardless of the part's rotation
 local function addMount(part, name, worldPos, flipDown)
 	local a = Instance.new("Attachment")
 	a.Name = name
@@ -110,7 +110,7 @@ local function addMount(part, name, worldPos, flipDown)
 	return a
 end
 
--- Полум'я та світло двигуна в точці NozzlePoint (вимкнені, доки ступінь не запалено)
+-- Engine flame and light at NozzlePoint (off until the stage is ignited)
 local function addEngineFX(nozzle, bellDiameter)
 	local flame = Instance.new("ParticleEmitter")
 	flame.Name = "Flame"
@@ -133,8 +133,8 @@ local function addEngineFX(nozzle, bellDiameter)
 	flame.Rate = 90
 	flame.Speed = NumberRange.new(30, 40)
 	flame.SpreadAngle = Vector2.new(5, 5)
-	flame.EmissionDirection = Enum.NormalId.Top -- +Y атачмента = вниз від сопла
-	-- полум'я летить разом із соплом: інакше на швидкості сотень studs/с його не видно
+	flame.EmissionDirection = Enum.NormalId.Top -- the attachment's +Y = down from the nozzle
+	-- the flame moves with the nozzle: otherwise it is invisible at hundreds of studs/s
 	flame.LockedToPart = true
 	flame.Enabled = false
 	flame.Parent = nozzle
@@ -149,15 +149,15 @@ local function addEngineFX(nozzle, bellDiameter)
 end
 
 --------------------------------------------------------------------
--- 🔧 BLENDER: меші з ServerStorage/RocketParts (підготовлені SetupAssets_Step5.lua)
--- Сірі примітиви лишаються як невидима фізична оболонка (колізії, зварювання, полум'я),
--- а меші — лише вигляд: Massless, без зіткнень. Тому фізика польоту від мешів не залежить.
+-- 🔧 BLENDER: meshes from ServerStorage/RocketParts (prepared by SetupAssets_Step5.lua)
+-- The grey primitives stay as an invisible physics shell (collisions, welds, flame),
+-- and the meshes are visual only: Massless, no collisions. So flight physics does not depend on the meshes.
 --------------------------------------------------------------------
 local partsFolder = ServerStorage:FindFirstChild("RocketParts")
 
--- який меш одягається на модуль по осі та як масштабується
---   stretch — діаметр і висота окремо (баки, декуплер, обтічник): меші не повернуті, тож це точно
---   uniform — один масштаб за діаметром (двигуни, капсули): пропорції не спотворюються
+-- which mesh is put on an axis module and how it is scaled
+--   stretch — diameter and height separately (tanks, decoupler, fairing): the meshes are not rotated, so this is exact
+--   uniform — one scale from the diameter (engines, capsules): proportions are not distorted
 local STACK_MESH = {
 	engine_rutherford = { "Engine_Rutherford", "uniform" },
 	engine_merlin = { "Engine_Merlin1D", "uniform" },
@@ -169,7 +169,7 @@ local STACK_MESH = {
 	pod_mercury = { "Capsule_Mercury", "uniform" },
 	pod_dragon = { "Capsule_Dragon", "uniform" },
 }
--- бічні прилади: меш і його висота в studs
+-- side instruments: mesh and its height in studs
 local RADIAL_MESH = {
 	rcs_draco = { "Thruster_RCS_Draco", 1.2 },
 	solar_panel = { "Power_SolarPanel", 5 },
@@ -186,11 +186,11 @@ local function hide(parts)
 	end
 end
 
--- Кладе копію шаблону так, щоб його низ на осі (0, BoxMin.Y, 0) став у точку bottom.
---   mode "stretch": XZ → diameter (за RefDiameter корпусу), Y → height
---   mode "uniform": усе × diameter / RefDiameter
---   mode "height":  усе × height / висота шаблону
--- Повертає створені MeshPart (або nil, якщо шаблону немає — тоді лишається сірий примітив)
+-- Places a copy of the template so that its bottom on the axis (0, BoxMin.Y, 0) lands at the point bottom.
+--   mode "stretch": XZ → diameter (by the body's RefDiameter), Y → height
+--   mode "uniform": everything × diameter / RefDiameter
+--   mode "height":  everything × height / template height
+-- Returns the created MeshParts (or nil if there is no template — then the grey primitive stays)
 local function placeMesh(templateName, parent, bottom, diameter, height, mode, rotation)
 	local tpl = partsFolder and partsFolder:FindFirstChild(templateName)
 	if not tpl then
@@ -215,7 +215,7 @@ local function placeMesh(templateName, parent, bottom, diameter, height, mode, r
 			local c = p:Clone()
 			c:ClearAllChildren()
 			c.Size = p.Size * scale
-			c.CFrame = origin * CFrame.new((p.Position - anchor) * scale) -- деталі шаблону не повернуті
+			c.CFrame = origin * CFrame.new((p.Position - anchor) * scale) -- template parts are not rotated
 			c.Anchored = true
 			c.Massless = true
 			c.CanCollide = false
@@ -230,14 +230,14 @@ local function placeMesh(templateName, parent, bottom, diameter, height, mode, r
 	return parts
 end
 
--- Бічні деталі. Повертає створені частини (перша — головна, на ній SideMount)
+-- Side parts. Returns the created pieces (the first is the main one, it holds the SideMount)
 local function radialPart(parent, base, r)
 	local color = RocketMath.ColorFor(r.id)
-	local dir = Vector3.new(math.cos(r.angle), 0, math.sin(r.angle)) -- напрямок "назовні"
+	local dir = Vector3.new(math.cos(r.angle), 0, math.sin(r.angle)) -- "outward" direction
 	local function at(distance, y)
 		return base + dir * distance + Vector3.new(0, y, 0)
 	end
-	local function facing(pos) -- локальна вісь -Z дивиться назовні
+	local function facing(pos) -- local -Z axis points outward
 		return CFrame.lookAt(pos, pos + dir)
 	end
 	local grey = Color3.fromRGB(120, 120, 120)
@@ -251,7 +251,7 @@ local function radialPart(parent, base, r)
 		add(newPart(parent, "SolarStrut", Vector3.new(0.15, 0.15, 0.4), facing(at(r.radius + 0.1, r.y)), grey, Enum.Material.Metal, false))
 		add(newPart(parent, "SolarPanel", Vector3.new(0.1, 1.8, 3.2), facing(at(r.radius + 1.7, r.y)), color, Enum.Material.Glass, false))
 	elseif r.id == "landing_legs" then
-		-- верх нахилений до ракети, низ — назовні
+		-- the top leans towards the rocket, the bottom outward
 		add(newPart(parent, "LandingLeg", Vector3.new(0.4, 3, 0.4), facing(at(r.radius + 0.6, r.y + 0.7)) * CFrame.Angles(math.rad(25), 0, 0),
 			color, Enum.Material.Metal, false))
 		add(newPart(parent, "LandingFoot", Vector3.new(1.2, 0.2, 1.2), facing(at(r.radius + 1.3, r.y - 0.7)),
@@ -266,14 +266,14 @@ local function radialPart(parent, base, r)
 		add(newPart(parent, r.id, Vector3.new(0.8, 1.2, 0.8), facing(at(r.radius + 0.4, r.y)), color, Enum.Material.Metal, false))
 	end
 
-	-- SideMount: точка на поверхні корпусу, +Z дивиться назовні
+	-- SideMount: a point on the body surface, +Z points outward
 	local mount = Instance.new("Attachment")
 	mount.Name = "SideMount"
 	mount.Parent = parts[1]
 	local p = at(r.radius, r.y)
 	mount.WorldCFrame = CFrame.lookAt(p, p - dir)
 
-	-- 🔧 BLENDER: меш приладу притискається до корпусу, +X шаблону дивиться назовні
+	-- 🔧 BLENDER: the instrument mesh is pressed against the body, the template's +X points outward
 	local meshInfo = RADIAL_MESH[r.id]
 	local tpl = meshInfo and partsFolder and partsFolder:FindFirstChild(meshInfo[1])
 	if tpl then
@@ -293,10 +293,10 @@ local function radialPart(parent, base, r)
 end
 
 --------------------------------------------------------------------
--- ЗБИРАННЯ
+-- ASSEMBLY
 --------------------------------------------------------------------
--- design — перевірене креслення (RocketMath.Sanitize + Validate),
--- base — світова точка низу ракети. Повертає Model (ще без Parent).
+-- design — a validated blueprint (RocketMath.Sanitize + Validate),
+-- base — world point of the rocket bottom. Returns a Model (with no Parent yet).
 function RocketAssembler.Build(design, base, label)
 	local layout = RocketMath.Layout(design)
 	local stats = RocketMath.Compute(design)
@@ -322,7 +322,7 @@ function RocketAssembler.Build(design, base, label)
 		local g = group(name)
 		g:SetAttribute("DryMass", g:GetAttribute("DryMass") + kg)
 	end
-	-- усі частини одного модуля позначаємо одним ключем (для заміни на меш)
+	-- all pieces of one module get the same key (for mesh replacement)
 	local function tag(parts, key)
 		for _, p in ipairs(parts) do
 			p:SetAttribute("ModuleKey", key)
@@ -343,7 +343,7 @@ function RocketAssembler.Build(design, base, label)
 		return "Stage" .. piece.stage
 	end
 
-	-- 1) Кластер двигунів ступеня 1: дзвін сопла ширший унизу
+	-- 1) Stage 1 engine cluster: the nozzle bell is wider at the bottom
 	local e = layout.engines
 	if e then
 		local g = group("Stage1")
@@ -371,7 +371,7 @@ function RocketAssembler.Build(design, base, label)
 		addMass("Stage1", Modules[e.id].dryMass * design.engineCount)
 	end
 
-	-- 2) Деталі по осі
+	-- 2) Parts on the axis
 	local podPart = nil
 	local fairingPiece = nil
 	for _, p in ipairs(layout.pieces) do
@@ -390,14 +390,14 @@ function RocketAssembler.Build(design, base, label)
 				parts = taper(g, p.id, base, p.y0, p.h, p.d0, p.d1, color, material, p.isEngine and 3 or 5)
 			end
 			if m.category == "tank" then
-				-- темна смуга посередині бака, як на справжніх ракетах
+				-- a dark band in the middle of the tank, like on real rockets
 				table.insert(parts, vCylinder(g, "TankBand", base, 0, 0, p.y0 + p.h / 2 - 0.2, 0.4, p.d0 + 0.08,
 					Color3.fromRGB(30, 30, 35), Enum.Material.SmoothPlastic))
 			end
 			tag(parts, p.id .. ":" .. p.index)
 			addMount(parts[1], "BottomMount", base + Vector3.new(0, p.y0, 0))
 			addMount(parts[1], "TopMount", base + Vector3.new(0, p.y0 + p.h, 0))
-			-- діаметри стикувальних зрізів (м) — див. RocketMath.DiameterCheck
+			-- interface diameters (m) — see RocketMath.DiameterCheck
 			local bottomD, topD = RocketMath.PieceDiameters(p)
 			parts[1]:SetAttribute("BottomDiameter", math.floor(bottomD * 100 + 0.5) / 100)
 			parts[1]:SetAttribute("TopDiameter", math.floor(topD * 100 + 0.5) / 100)
@@ -419,14 +419,14 @@ function RocketAssembler.Build(design, base, label)
 		end
 	end
 
-	-- 3) Бічні деталі — у Payload (летять разом із капсулою)
+	-- 3) Side parts go into Payload (they fly with the capsule)
 	for k, r in ipairs(layout.radial) do
 		local parts = radialPart(group("Payload"), base, r)
 		tag(parts, r.id .. ":r" .. k)
 		addMass("Payload", Modules[r.id].dryMass)
 	end
 
-	-- 4) Підпис над ракетою (бачать усі)
+	-- 4) Label above the rocket (visible to everyone)
 	local labelAnchor = newPart(group("Payload"), "LabelAnchor", Vector3.new(1, 1, 1),
 		CFrame.new(base + Vector3.new(0, layout.height + 2, 0)), Color3.new(1, 1, 1), nil, false)
 	labelAnchor.Transparency = 1
@@ -448,8 +448,8 @@ function RocketAssembler.Build(design, base, label)
 	text.TextSize = 20
 	text.Parent = billboard
 
-	-- 5) Головний обтічник: дві половинки (ліва -X, права +X)
-	--    🔧 BLENDER: тут стане пара MeshPart-оболонок; зараз — стос прямокутних блоків.
+	-- 5) Payload fairing: two halves (left -X, right +X)
+	--    🔧 BLENDER: a pair of MeshPart shells will go here; for now it is a stack of rectangular blocks.
 	if fairingPiece then
 		local p = fairingPiece
 		local color = RocketMath.ColorFor("fairing")
@@ -472,7 +472,7 @@ function RocketAssembler.Build(design, base, label)
 				table.insert(parts, half)
 			end
 			tag(parts, "fairing:" .. p.index .. ":" .. side[1])
-			-- 🔧 BLENDER: шаблон Fairing_Half — ліва стулка (−X); права = та сама, повернута на 180°
+			-- 🔧 BLENDER: the Fairing_Half template is the left shell (−X); the right one is the same, rotated 180°
 			local rot = side[2] > 0 and CFrame.Angles(0, math.pi, 0) or CFrame.identity
 			if placeMesh("Fairing_Half", g, base + Vector3.new(0, p.y0, 0), p.d0, p.h, "stretch", rot) then
 				hide(parts)
@@ -482,7 +482,7 @@ function RocketAssembler.Build(design, base, label)
 		end
 	end
 
-	-- 6) Атрибути ступенів (тяга, Isp, пальне)
+	-- 6) Stage attributes (thrust, Isp, propellant)
 	for k, st in ipairs(stages) do
 		local g = groups["Stage" .. k]
 		if g then
@@ -490,15 +490,15 @@ function RocketAssembler.Build(design, base, label)
 			g:SetAttribute("FuelCapacity", g:GetAttribute("FuelCapacity") or 0)
 			g:SetAttribute("FuelMass", 0)
 			g:SetAttribute("EngineId", st.engineId or "")
-			g:SetAttribute("Thrust", st.thrustSL)      -- Н, біля Землі
-			g:SetAttribute("ThrustVac", st.thrustVac)  -- Н, у вакуумі
-			g:SetAttribute("Isp", st.ispSL)            -- с
-			g:SetAttribute("IspVac", st.ispVac)        -- с
+			g:SetAttribute("Thrust", st.thrustSL)      -- N, at sea level
+			g:SetAttribute("ThrustVac", st.thrustVac)  -- N, in vacuum
+			g:SetAttribute("Isp", st.ispSL)            -- s
+			g:SetAttribute("IspVac", st.ispVac)        -- s
 		end
 	end
 
-	-- 7) Зварювання. Усередині групи — до її кореня; групи — ланцюжком знизу вгору.
-	--    Зв'язок "декуплер → наступна група" — це SeparationWeld: його розрив відрізає все, що нижче.
+	-- 7) Welding. Inside a group — to its root; groups — in a chain from bottom to top.
+	--    The "decoupler → next group" link is a SeparationWeld: breaking it cuts off everything below.
 	local function weld(a, b, parent, name)
 		local w = Instance.new("WeldConstraint")
 		w.Name = name or "Weld"
@@ -538,15 +538,15 @@ function RocketAssembler.Build(design, base, label)
 		end
 	end
 
-	-- 8) Ядро польоту: капсула летить до кінця, тому VectorForce/AlignOrientation живуть на ній
+	-- 8) Flight core: the capsule flies to the end, so VectorForce/AlignOrientation live on it
 	local core = podPart or roots.Payload
 	local coreAtt = Instance.new("Attachment")
 	coreAtt.Name = "FlightCore"
 	coreAtt.Parent = core
-	coreAtt.WorldCFrame = CFrame.new(core.Position) -- +Y = вісь ракети
+	coreAtt.WorldCFrame = CFrame.new(core.Position) -- +Y = rocket axis
 	model.PrimaryPart = core
 
-	-- 9) Крісло пілота всередині капсули (Capsule_Dragon / Capsule_Mercury) — CapsuleSeatSystem
+	-- 9) Pilot seat inside the capsule (Capsule_Dragon / Capsule_Mercury) — CapsuleSeatSystem
 	CapsuleSeatSystem.AddSeat(model, core, RocketAssembler.ROCKET_GROUP)
 
 	model:SetAttribute("State", "Hangar")
@@ -561,7 +561,7 @@ function RocketAssembler.Build(design, base, label)
 end
 
 --------------------------------------------------------------------
--- ПЕРЕМІЩЕННЯ
+-- MOVING
 --------------------------------------------------------------------
 function RocketAssembler.MoveTo(model, newBase)
 	local old = model:GetAttribute("BasePosition")
@@ -569,10 +569,10 @@ function RocketAssembler.MoveTo(model, newBase)
 	model:SetAttribute("BasePosition", newBase)
 end
 
--- Верх стартового столу (Workspace > LaunchPad > Pad) під точкою LaunchPoint
+-- Top of the launch table (Workspace > LaunchPad > Pad) under the LaunchPoint
 function RocketAssembler.GetLaunchBase()
 	local padModel = workspace:FindFirstChild("LaunchPad")
-	-- стартовий стіл з Blender: ракета стоїть на невидимій опорі LaunchSurface всередині кільця захватів
+	-- launch table from Blender: the rocket stands on an invisible LaunchSurface support inside the clamp ring
 	local surface = padModel and padModel:FindFirstChild("LaunchSurface")
 	if surface then
 		return surface.Position + Vector3.new(0, surface.Size.Y / 2, 0)
@@ -583,15 +583,15 @@ function RocketAssembler.GetLaunchBase()
 		return Vector3.new(0, 2, 110)
 	end
 	local cf, size = pad.CFrame, pad.Size
-	-- напіввисота повернутої деталі вздовж світової Y
+	-- half-height of a rotated part along world Y
 	local halfY = 0.5 * (math.abs(cf.RightVector.Y) * size.X + math.abs(cf.UpVector.Y) * size.Y + math.abs(cf.LookVector.Y) * size.Z)
 	local xz = point and point.Position or pad.Position
 	return Vector3.new(xz.X, pad.Position.Y + halfY, xz.Z)
 end
 
--- Перенесення заправленої ракети з ангара на стартовий майданчик.
--- Пальне з баків гравця (RocketFuel) розподіляється по ступенях пропорційно їхній місткості.
--- Ракета лишається ЗАБЛОКОВАНОЮ (Anchored) до команди «Запуск» — див. Unlock.
+-- Moves the fuelled rocket from the hangar to the launch pad.
+-- Fuel from the player's tanks (RocketFuel) is shared between stages in proportion to their capacity.
+-- The rocket stays LOCKED (Anchored) until the "Launch" command — see Unlock.
 function RocketAssembler.LaunchPadSpawn(model, fuelKg)
 	local totalCap = 0
 	for _, g in ipairs(model:GetChildren()) do
@@ -613,7 +613,7 @@ function RocketAssembler.LaunchPadSpawn(model, fuelKg)
 	return base
 end
 
--- Зняття блокування на старт: деталі стають фізичними, симуляцію веде сервер (античит)
+-- Unlocking for launch: parts become physical, the server runs the simulation (anti-cheat)
 function RocketAssembler.Unlock(model)
 	for _, d in ipairs(model:GetDescendants()) do
 		if d:IsA("BasePart") then
@@ -626,11 +626,11 @@ function RocketAssembler.Unlock(model)
 end
 
 --------------------------------------------------------------------
--- 🔧 BLENDER: заміна сірого примітива на MeshPart
---   greyPart     — будь-яка частина модуля (знайдеться по ModuleKey разом із рештою)
---   meshTemplate — MeshPart з Attachment "BottomMount" у точці низу модуля
--- Меш ставиться так, щоб його BottomMount збігся з BottomMount сірої деталі, приварюється,
--- сірі частини стають невидимими. Маси/тяга не змінюються (вони в атрибутах папок).
+-- 🔧 BLENDER: replacing a grey primitive with a MeshPart
+--   greyPart     — any piece of the module (the rest is found by ModuleKey)
+--   meshTemplate — a MeshPart with Attachment "BottomMount" at the module bottom
+-- The mesh is placed so its BottomMount matches the grey part's BottomMount, then welded,
+-- and the grey pieces become invisible. Masses/thrust do not change (they are in folder attributes).
 --------------------------------------------------------------------
 function RocketAssembler.ReplaceVisual(greyPart, meshTemplate)
 	local key = greyPart:GetAttribute("ModuleKey")

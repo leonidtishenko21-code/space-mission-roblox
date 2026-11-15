@@ -1,20 +1,20 @@
 --[[
 	RocketMath (ModuleScript)
-	Місце: ReplicatedStorage > Modules > RocketMath
+	Location: ReplicatedStorage > Modules > RocketMath
 
-	Спільна "інженерна" логіка конструктора ракети (крок 3):
-	  • Compute  — вартість, маса, тяга, TWR, Δv, час роботи двигуна, зміщення центру мас
-	  • Validate — чи можна зібрати ракету (помилки) і що варто покращити (попередження)
-	  • Layout   — як деталі стоять одна на одній (висоти й діаметри в studs)
-	Його використовують І клієнт (показує числа), І сервер (перевіряє перед покупкою),
-	тому числа завжди однакові, а підробити ракету через FireServer не вийде.
+	Shared "engineering" logic of the rocket builder (step 3):
+	  • Compute  — cost, mass, thrust, TWR, Δv, engine burn time, centre-of-mass offset
+	  • Validate — whether the rocket can be built (errors) and what should be improved (warnings)
+	  • Layout   — how the parts stack on each other (heights and diameters in studs)
+	It is used BOTH by the client (shows the numbers) AND by the server (checks before purchase),
+	so the numbers are always the same and a rocket cannot be faked through FireServer.
 
-	Ракета (design) — це таблиця:
+	A rocket (design) is a table:
 	  {
-	    stack = { "engine_rutherford", "tank_small", "pod_mercury", "nosecone" }, -- ЗНИЗУ ВГОРУ
-	    radial = { "antenna_low" },   -- деталі збоку
-	    engineCount = 3,              -- скільки двигунів у нижньому кластері
-	  }                               -- (справжня ракета Electron має 9 двигунів Rutherford)
+	    stack = { "engine_rutherford", "tank_small", "pod_mercury", "nosecone" }, -- BOTTOM TO TOP
+	    radial = { "antenna_low" },   -- side parts
+	    engineCount = 3,              -- how many engines in the bottom cluster
+	  }                               -- (the real Electron rocket has 9 Rutherford engines)
 ]]
 
 local NASAData = require(script.Parent:WaitForChild("NASAData"))
@@ -26,25 +26,25 @@ local METERS_PER_STUD = NASAData.Constants.METERS_PER_STUD
 local RocketMath = {}
 
 --------------------------------------------------------------------
--- ⚙️ ПРАВИЛА
+-- ⚙️ RULES
 --------------------------------------------------------------------
-RocketMath.MAX_STACK = 12           -- деталей по центральній осі (з урахуванням ступенів)
-RocketMath.MAX_RADIAL = 6           -- деталей збоку
-RocketMath.MAX_ENGINES = 9          -- двигунів у кластері (як в Electron)
-RocketMath.MIN_TWR = 1.0            -- менше → ракета не відірветься від землі
-RocketMath.GOOD_TWR = 1.2           -- менше → злітає дуже повільно (попередження)
-RocketMath.MAX_COM_OFFSET_CM = 3    -- більше → центр мас зміщений (попередження)
+RocketMath.MAX_STACK = 12           -- parts on the central axis (including stages)
+RocketMath.MAX_RADIAL = 6           -- side parts
+RocketMath.MAX_ENGINES = 9          -- engines in the cluster (as on Electron)
+RocketMath.MIN_TWR = 1.0            -- lower → the rocket will not lift off
+RocketMath.GOOD_TWR = 1.2           -- lower → very slow lift-off (warning)
+RocketMath.MAX_COM_OFFSET_CM = 3    -- higher → centre of mass is off-axis (warning)
 RocketMath.DEFAULT_DIAMETER = 4     -- studs
 RocketMath.ENGINE_MOUNT_HEIGHT = 0.4
 
 --------------------------------------------------------------------
--- Вигляд деталей (studs): h — висота, d — діаметр знизу, top — діаметр зверху,
--- grow — на скільки ширша за деталь під нею (тепловий щит)
+-- Part shapes (studs): h — height, d — bottom diameter, top — top diameter,
+-- grow — how much wider than the part below it (heat shield)
 --------------------------------------------------------------------
--- Висоти двигунів і капсул підібрані за пропорціями мешів з Blender (ServerStorage/RocketParts),
--- щоб вони не розтягувались: h = d · (висота / діаметр меша).
+-- Engine and capsule heights follow the proportions of the Blender meshes (ServerStorage/RocketParts),
+-- so they are not stretched: h = d · (mesh height / mesh diameter).
 RocketMath.Visual = {
-	pod_mercury = { h = 8.9, d = 3.4, top = 0.9 },   -- разом із вежею системи аварійного порятунку
+	pod_mercury = { h = 8.9, d = 3.4, top = 0.9 },   -- including the launch escape tower
 	pod_dragon = { h = 6, d = 5, top = 2.6 },
 	tank_small = { h = 4, d = 4 },
 	tank_medium = { h = 8, d = 5 },
@@ -55,10 +55,10 @@ RocketMath.Visual = {
 	nosecone = { h = 3, top = 0.3 },
 	interstage = { h = 1.2 },
 	heat_shield = { h = 0.5, grow = 0.4 },
-	parachute = { h = 1.2 }, -- контейнер парашута бере діаметр деталі під ним
+	parachute = { h = 1.2 }, -- the parachute container takes the diameter of the part below it
 	docking_port = { h = 0.8, d = 2.4 },
 	decoupler = { h = 2.5 },
-	-- wrap = обтічник накриває капсулу під ним (циліндр висотою з капсулу + конус h)
+	-- wrap = the fairing covers the capsule below it (cylinder as tall as the capsule + cone h)
 	fairing = { h = 3.5, top = 0.4, wrap = true },
 }
 
@@ -92,7 +92,7 @@ function RocketMath.ColorFor(moduleId)
 end
 
 --------------------------------------------------------------------
--- Допоміжні функції
+-- Helper functions
 --------------------------------------------------------------------
 
 -- 20000 → "20 000",  -150 → "-150"
@@ -105,7 +105,7 @@ function RocketMath.FormatNumber(n)
 end
 local fmt = RocketMath.FormatNumber
 
--- Головний двигун = двигун, що кріпиться по осі (RCS Draco кріпиться збоку і не рахується)
+-- Main engine = an engine mounted on the axis (the RCS Draco is mounted on the side and is not counted)
 function RocketMath.IsMainEngine(moduleId)
 	local m = moduleId and Modules[moduleId]
 	return m ~= nil and m.category == "engine" and m.attach == "stack"
@@ -119,17 +119,17 @@ function RocketMath.HasModule(design, moduleId)
 	return table.find(design.stack, moduleId) ~= nil or table.find(design.radial, moduleId) ~= nil
 end
 
--- Деталь, яка може стояти лише на самій верхівці
+-- A part that can only sit at the very top
 function RocketMath.IsTopCap(moduleId)
 	return moduleId == "nosecone" or moduleId == "fairing"
 end
 
 --------------------------------------------------------------------
--- СТУПЕНІ: stack ділиться на ступені декуплерами (знизу вгору).
---   Декуплер належить ступеню ПІД ним — відлітає разом із ним.
---   Ступінь 1 — нижній (працює першим), останній — з капсулою.
---   Двигун ступеня стоїть першим у своєму сегменті. Кластер з engineCount — лише в ступені 1,
---   у верхніх ступенях по одному двигуну (як другий ступінь Electron).
+-- STAGES: the stack is split into stages by decouplers (bottom to top).
+--   A decoupler belongs to the stage BELOW it — it falls away with it.
+--   Stage 1 is the bottom one (fires first), the last one carries the capsule.
+--   A stage's engine is the first part of its segment. The engineCount cluster is only in stage 1,
+--   upper stages have one engine each (like Electron's second stage).
 --------------------------------------------------------------------
 function RocketMath.SplitStages(design)
 	local stack = design.stack
@@ -155,7 +155,7 @@ function RocketMath.SplitStages(design)
 	return stages
 end
 
--- Перевіряє дані, що прийшли від гравця: лише відомі деталі, розумні розміри
+-- Validates data sent by the player: only known parts, sane sizes
 function RocketMath.Sanitize(raw)
 	if type(raw) ~= "table" then
 		return nil
@@ -178,17 +178,17 @@ function RocketMath.Sanitize(raw)
 		end
 	end
 	local n = tonumber(raw.engineCount)
-	if n and n == n then -- n == n відкидає NaN
+	if n and n == n then -- n == n rejects NaN
 		design.engineCount = math.clamp(math.floor(n), 1, RocketMath.MAX_ENGINES)
 	end
 	return design
 end
 
 --------------------------------------------------------------------
--- LAYOUT: де стоїть кожна деталь (у studs, від низу ракети)
+-- LAYOUT: where each part stands (in studs, from the bottom of the rocket)
 --------------------------------------------------------------------
 
--- Розставляє N двигунів по колу (якщо їх > 7 — один ще й у центрі)
+-- Places N engines in a circle (if there are > 7, one more goes in the centre)
 local function clusterOffsets(count, mountDiameter, bellDiameter)
 	if count <= 1 then
 		return { Vector2.zero }
@@ -232,7 +232,7 @@ function RocketMath.Layout(design)
 	local prevD = RocketMath.DEFAULT_DIAMETER
 	local first = 1
 
-	-- 1) Кластер двигунів унизу + плита кріплення
+	-- 1) Engine cluster at the bottom + thrust plate
 	if RocketMath.IsMainEngine(stack[1]) then
 		local v = RocketMath.Visual[stack[1]] or { h = 1.6, d = 1.2 }
 		local nextV = stack[2] and RocketMath.Visual[stack[2]]
@@ -252,7 +252,7 @@ function RocketMath.Layout(design)
 		first = 2
 	end
 
-	-- 2) Решта деталей по осі
+	-- 2) The rest of the parts on the axis
 	local lastTankD, prevPiece = nil, nil
 	for i = first, #stack do
 		local id = stack[i]
@@ -264,11 +264,11 @@ function RocketMath.Layout(design)
 		end
 		local piece
 		if RocketMath.IsMainEngine(id) then
-			-- двигун верхнього ступеня (стоїть на декуплері): дзвін сопла ширший унизу
+			-- upper-stage engine (sits on the decoupler): the nozzle bell is wider at the bottom
 			local bell = v.d or 1.2
 			piece = { id = id, index = i, stage = st, y0 = y, h = v.h, d0 = bell, d1 = bell * 0.55, isEngine = true }
 		elseif v.wrap and prevPiece and Modules[prevPiece.id].category == "command" then
-			-- обтічник накриває капсулу: починається від її низу
+			-- the fairing covers the capsule: it starts at the capsule's bottom
 			local d0 = math.max(prevPiece.d0, lastTankD or 0) + 0.3
 			piece = {
 				id = id, index = i, stage = st, y0 = prevPiece.y0, h = prevPiece.h + v.h,
@@ -292,8 +292,8 @@ function RocketMath.Layout(design)
 	end
 	layout.height = y
 
-	-- 3) Бічні деталі: рівномірно по колу, на ОСТАННЬОМУ ступені (вони летять разом із капсулою):
-	--    на середині найбільшого бака цього ступеня, або на капсулі
+	-- 3) Side parts: evenly around the circle, on the LAST stage (they fly with the capsule):
+	--    at the middle of that stage's largest tank, or on the capsule
 	local bodyD, bodyY, bestTankH, podPiece = nil, nil, -1, nil
 	for _, p in ipairs(layout.pieces) do
 		if p.stage == nStages then
@@ -318,7 +318,7 @@ function RocketMath.Layout(design)
 		local m = Modules[id]
 		local entry = { id = id, angle = (k - 1) / n * 2 * math.pi, radius = bodyD / 2, y = bodyY, stage = nStages }
 		if m and m.category == "landing" then
-			-- посадкові опори — біля двигунів останнього ступеня
+			-- landing legs — next to the engines of the last stage
 			if nStages == 1 and layout.engines then
 				entry.radius = layout.engines.mountDiameter / 2
 			end
@@ -331,23 +331,23 @@ function RocketMath.Layout(design)
 end
 
 --------------------------------------------------------------------
--- СУМІСНІСТЬ ДІАМЕТРІВ (зверху вниз і знизу вгору)
---   У кожної деталі є BottomDiameter (нижній стикувальний зріз) і TopDiameter (верхній), у метрах.
---   Правило:  верхній.BottomDiameter ≤ нижній.TopDiameter  (такого ж діаметра або вужчий),
---   інакше широкий модуль нависає над вузьким і на Max-Q (макс. аеродинамічний напір) корпус руйнується.
---   Винятки:
---     • двигуни верхніх ступенів висять всередині декуплера — у перевірці не беруть участі;
---     • адаптивні деталі (декуплер, міжступеневе кільце, конус, парашут) беруть діаметр нижньої;
---     • головний обтічник може бути ширшим: у нього конічна нижня спідниця;
---     • тепловий щит навмисно трохи ширший за деталь під ним (захищає капсулу).
+-- DIAMETER COMPATIBILITY (top-down and bottom-up)
+--   Every part has a BottomDiameter (lower interface) and a TopDiameter (upper), in metres.
+--   Rule:  upper.BottomDiameter ≤ lower.TopDiameter  (same diameter or narrower),
+--   otherwise a wide module overhangs a narrow one and the body breaks up at Max-Q (max aerodynamic pressure).
+--   Exceptions:
+--     • upper-stage engines hang inside the decoupler — they are not checked;
+--     • adaptive parts (decoupler, interstage ring, cone, parachute) take the diameter of the part below;
+--     • the payload fairing may be wider: it has a conical lower skirt;
+--     • the heat shield is intentionally a bit wider than the part below it (it protects the capsule).
 --------------------------------------------------------------------
 local DIAMETER_EXEMPT = { fairing = true, heat_shield = true }
 
--- Повертає список порушень: { upper = id, lower = id, upperD = м, lowerD = м }
+-- Returns a list of violations: { upper = id, lower = id, upperD = m, lowerD = m }
 function RocketMath.DiameterCheck(design, layout)
 	layout = layout or RocketMath.Layout(design)
 	local problems = {}
-	local prev = nil -- остання "несуча" деталь під поточною
+	local prev = nil -- the last "load-bearing" part below the current one
 	for _, p in ipairs(layout.pieces) do
 		if not p.isEngine then
 			if prev and not DIAMETER_EXEMPT[p.id] and p.d0 > prev.d1 + 0.01 then
@@ -362,13 +362,13 @@ function RocketMath.DiameterCheck(design, layout)
 	return problems
 end
 
--- Діаметри модуля в метрах (для атрибутів деталей і підказок)
+-- Module diameters in metres (for part attributes and hints)
 function RocketMath.PieceDiameters(piece)
 	return piece.d0 * METERS_PER_STUD, piece.d1 * METERS_PER_STUD
 end
 
 --------------------------------------------------------------------
--- COMPUTE: усі інженерні числа ракети
+-- COMPUTE: all engineering numbers of the rocket
 --------------------------------------------------------------------
 function RocketMath.Compute(design)
 	local s = {
@@ -406,7 +406,7 @@ function RocketMath.Compute(design)
 		add(id, (st and st.engineId and i == st.first) and st.engineCount or 1, st)
 	end
 	for _, id in ipairs(design.radial) do
-		add(id, 1, stages[nStages]) -- бічні деталі летять у верхньому ступені
+		add(id, 1, stages[nStages]) -- side parts fly in the upper stage
 	end
 
 	for _, st in ipairs(stages) do
@@ -419,26 +419,26 @@ function RocketMath.Compute(design)
 		end
 	end
 
-	-- Тяга на старті = тяга ступеня 1
+	-- Lift-off thrust = stage 1 thrust
 	local first = stages[1]
 	if first and first.engineId then
 		s.thrustSL, s.thrustVac = first.thrustSL, first.thrustVac
 		s.ispSL, s.ispVac = first.ispSL, first.ispVac
 	end
 
-	-- Стартова (повна) маса = суха маса + пальне
+	-- Lift-off (wet) mass = dry mass + propellant
 	s.wetMass = s.dryMass + s.fuel
 
-	-- TWR = F / (m · g)  — біля поверхні Землі
+	-- TWR = F / (m · g)  — at the Earth's surface
 	if s.wetMass > 0 then
 		s.twr = NASAData.TWR(s.thrustSL, s.wetMass, NASAData.Planets.Earth.surfaceGravity)
 	end
 
-	-- Формула Ціолковського ДЛЯ КОЖНОГО СТУПЕНЯ, згори вниз:
-	--   m0ₖ = маса всіх ступенів від k до верху (з пальним)
-	--   m1ₖ = m0ₖ − пальне ступеня k
+	-- Tsiolkovsky rocket equation FOR EACH STAGE, top-down:
+	--   m0ₖ = mass of all stages from k to the top (with propellant)
+	--   m1ₖ = m0ₖ − propellant of stage k
 	--   Δvₖ = Ispₖ · g0 · ln(m0ₖ / m1ₖ),    Δv = Σ Δvₖ
-	-- ṁ = F / (Isp · g0) — скільки кг пального згорає за секунду
+	-- ṁ = F / (Isp · g0) — how many kg of propellant burn per second
 	local above = 0
 	for k = nStages, 1, -1 do
 		local st = stages[k]
@@ -458,10 +458,10 @@ function RocketMath.Compute(design)
 	s.burnRate = first and first.burnRate or 0
 	s.stages = stages
 
-	-- Скільки RP-1 треба для повної заправки (решта — кисень LOX)
+	-- How much RP-1 is needed for a full load (the rest is LOX oxygen)
 	s.rp1Needed = s.fuel * NASAData.Constants.RP1_SHARE
 
-	-- Зміщення центру мас від осі через бічні деталі:  x_cm = Σ(mᵢ · xᵢ) / M
+	-- Centre-of-mass offset from the axis caused by side parts:  x_cm = Σ(mᵢ · xᵢ) / M
 	local layout = RocketMath.Layout(design)
 	local sx, sz = 0, 0
 	for _, r in ipairs(layout.radial) do
@@ -479,9 +479,9 @@ function RocketMath.Compute(design)
 end
 
 --------------------------------------------------------------------
--- Обладнання, обов'язкове для місії
+-- Equipment required by the mission
 --------------------------------------------------------------------
--- Вимоги місії "за функцією": будь-який двигун / бак / капсула по осі
+-- Mission requirements "by function": any engine / tank / capsule on the axis
 local GENERIC_REQUIREMENTS = {
 	engine = { name = "Main engine (any)", test = function(id)
 		return RocketMath.IsMainEngine(id)
@@ -505,10 +505,10 @@ function RocketMath.MissionChecklist(design, missionId)
 		local ok = RocketMath.HasModule(design, id)
 		local name = m and m.name or id
 		if id == "nosecone" and not ok then
-			ok = RocketMath.HasModule(design, "fairing") -- обтічник теж захищає нос
+			ok = RocketMath.HasModule(design, "fairing") -- a fairing also protects the nose
 		end
-		-- Двигун, бак і капсула по осі — будь-яка модель тієї ж категорії (наприклад, Merlin замість
-		-- Rutherford): місія вимагає функцію, а не конкретну марку. Прилади та бічні деталі — саме ті.
+		-- Engine, tank and capsule on the axis — any model of the same category (e.g. Merlin instead of
+		-- Rutherford): the mission requires a function, not a specific brand. Instruments and side parts must match exactly.
 		local generic = m and m.attach == "stack" and GENERIC_REQUIREMENTS[m.category]
 		if generic then
 			name = generic.name
@@ -526,7 +526,7 @@ function RocketMath.MissionChecklist(design, missionId)
 end
 
 --------------------------------------------------------------------
--- VALIDATE: errors (не можна збирати) і warnings (можна, але варто покращити)
+-- VALIDATE: errors (cannot be built) and warnings (can be built, but should be improved)
 --------------------------------------------------------------------
 function RocketMath.Validate(design, budget, missionId)
 	local errors, warnings = {}, {}
@@ -551,7 +551,7 @@ function RocketMath.Validate(design, budget, missionId)
 		err("Too many side parts (max " .. RocketMath.MAX_RADIAL .. ").")
 	end
 
-	-- Як кріпиться кожна деталь
+	-- How each part is mounted
 	for _, id in ipairs(stack) do
 		if Modules[id].attach ~= "stack" then
 			err(Modules[id].name .. " can only be attached on the side.")
@@ -563,7 +563,7 @@ function RocketMath.Validate(design, budget, missionId)
 		end
 	end
 
-	-- Порядок деталей
+	-- Part order
 	if not RocketMath.IsMainEngine(stack[1]) then
 		err("An engine must be at the bottom.")
 	end
@@ -574,7 +574,7 @@ function RocketMath.Validate(design, budget, missionId)
 		end
 	end
 
-	-- Ступені
+	-- Stages
 	local stages = stats.stages
 	if stack[1] == "decoupler" then
 		err("A decoupler cannot be at the very bottom.")
@@ -635,26 +635,26 @@ function RocketMath.Validate(design, budget, missionId)
 		warnText("Place the fairing right above the capsule so it covers it.")
 	end
 
-	-- Конструкція: верхній модуль не може бути ширшим за нижній
+	-- Structure: an upper module cannot be wider than the one below
 	for _, pr in ipairs(stats.diameterProblems or {}) do
 		err(string.format("Structure: \"%s\" (Ø %.2f m) is wider than \"%s\" below it (Ø %.2f m). "
 			.. "The upper module must have the same or a smaller diameter — otherwise the hull may break up at Max-Q.",
 			Modules[pr.upper].name, pr.upperD, Modules[pr.lower].name, pr.lowerD))
 	end
 
-	-- Фізика: чи злетить?
+	-- Physics: will it fly?
 	if stats.thrustSL > 0 and stats.twr < RocketMath.MIN_TWR then
 		err(string.format("TWR = %.2f < 1: thrust is lower than weight, the rocket will not lift off. Add engines or reduce mass.", stats.twr))
 	elseif stats.thrustSL > 0 and stats.twr < RocketMath.GOOD_TWR then
 		warnText(string.format("TWR = %.2f: the rocket will climb very slowly. TWR ≥ %.1f is better.", stats.twr, RocketMath.GOOD_TWR))
 	end
 
-	-- Центр мас
+	-- Centre of mass
 	if stats.comOffsetCm > RocketMath.MAX_COM_OFFSET_CM then
 		warnText(string.format("Center of mass is off by %.1f cm — the rocket will lean. Place matching side parts opposite each other.", stats.comOffsetCm))
 	end
 
-	-- Обладнання місії
+	-- Mission equipment
 	local missing = {}
 	for _, item in ipairs(RocketMath.MissionChecklist(design, missionId)) do
 		if not item.ok then
@@ -666,7 +666,7 @@ function RocketMath.Validate(design, budget, missionId)
 		err("Mission \"" .. (planet and planet.name or missionId) .. "\" is missing: " .. table.concat(missing, ", ") .. ".")
 	end
 
-	-- Гроші
+	-- Money
 	if stats.cost > budget then
 		err("You are short $" .. fmt(stats.cost - budget) .. " (the rocket costs $" .. fmt(stats.cost) .. ").")
 	end

@@ -1,16 +1,16 @@
 --[[
-	AstronautClient (LocalScript) — КРОКИ 1–3, клієнт
-	Місце: StarterPlayer > StarterPlayerScripts > AstronautClient
+	AstronautClient (LocalScript) — STEPS 1–3, client
+	Location: StarterPlayer > StarterPlayerScripts > AstronautClient
 
-	  [V]  — вигляд «Ззовні / З кабіни», поки астронавт у кріслі капсули (атрибут InCapsule)
-	         у кабіні: ПКМ + миша — оглянутись
-	  [L]  — налобний ліхтарик скафандра
-	  [K]  — зняти скафандр (сервер дозволяє лише на Землі)
-	  Space в повітрі у скафандрі — мікродвигуни ранця (під час EVA — справжня тяга, витрачає заряд)
-	  [E]  — КРОК 3: вийти з капсули (коли сервер виставив CanEVA; інакше E — крен ракети)
-	  EVA (атрибут EVA): низька гравітація Місяця / Марса (VectorForce на HumanoidRootPart),
-	       високі повільні стрибки, повернення — ProximityPrompt «СІСТИ В КАПСУЛУ [F]»
-	Поки CapsuleLocked = true, стан Jumping вимкнено — вистрибнути з крісла під час розгону не вийде.
+	  [V]  — "Outside / Cockpit" view while the astronaut is in the capsule seat (attribute InCapsule)
+	         in the cockpit: RMB + mouse — look around
+	  [L]  — spacesuit headlamp
+	  [K]  — take off the spacesuit (the server allows it only on Earth)
+	  Space in the air in a spacesuit — backpack thrusters (during EVA — real thrust, uses charge)
+	  [E]  — STEP 3: leave the capsule (when the server has set CanEVA; otherwise E rolls the rocket)
+	  EVA (attribute EVA): low Moon / Mars gravity (VectorForce on the HumanoidRootPart),
+	       high slow jumps, getting back in — ProximityPrompt "BOARD CAPSULE [F]"
+	While CapsuleLocked = true the Jumping state is disabled — you cannot jump out of the seat during ascent.
 ]]
 
 local Players = game:GetService("Players")
@@ -26,19 +26,19 @@ local suitEvent = remotes:WaitForChild("SpacesuitAction")
 local evaEvent = remotes:WaitForChild("EVAAction")
 
 local PRIORITY = Enum.ContextActionPriority.High.Value + 200
-local EYE_HEIGHT = 2.6     -- studs від крісла до очей сидячого астронавта
-local LOOK_SENS = 0.004    -- рад на піксель
-local HIDE_GROUPS = { "Payload", "FairingLeft", "FairingRight" } -- з кабіни не затуляють огляд
+local EYE_HEIGHT = 2.6     -- studs from the seat to the eyes of a seated astronaut
+local LOOK_SENS = 0.004    -- rad per pixel
+local HIDE_GROUPS = { "Payload", "FairingLeft", "FairingRight" } -- do not block the view from the cockpit
 
 --------------------------------------------------------------------
--- UI: підказка вигляду + стан скафандра
+-- UI: view hint + spacesuit status
 --------------------------------------------------------------------
 local gui = Instance.new("ScreenGui")
 gui.Name = "AstronautHUD"
 gui.ResetOnSpawn = false
 gui.IgnoreGuiInset = true
 gui.DisplayOrder = 20
-gui:SetAttribute("KeepInFlight", true) -- FlightClient не ховає цей HUD під час польоту
+gui:SetAttribute("KeepInFlight", true) -- FlightClient does not hide this HUD during flight
 gui.Parent = player:WaitForChild("PlayerGui")
 
 local function label(y)
@@ -62,7 +62,7 @@ local viewLabel = label(64)
 local suitLabel = label(94)
 local evaLabel = label(124)
 evaLabel.Size = UDim2.fromOffset(560, 26)
--- КРОК 4: статус місії «Збір екземпляра планети»
+-- STEP 4: status of the "Collect a planet sample" mission
 local missionLabel = label(158)
 missionLabel.Size = UDim2.fromOffset(640, 34)
 missionLabel.Font = Enum.Font.GothamBlack
@@ -72,7 +72,7 @@ missionStroke.Thickness = 2
 missionStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 missionStroke.Parent = missionLabel
 
--- рамка ілюмінатора у вигляді з кабіни
+-- porthole frame in the cockpit view
 local porthole = Instance.new("Frame")
 porthole.Size = UDim2.fromScale(1, 1)
 porthole.BackgroundTransparency = 1
@@ -88,7 +88,7 @@ round.CornerRadius = UDim.new(0.18, 0)
 round.Parent = porthole
 
 --------------------------------------------------------------------
--- Допоміжне
+-- Helpers
 --------------------------------------------------------------------
 local function findRocket()
 	local folder = workspace:FindFirstChild("Rockets")
@@ -108,11 +108,11 @@ local function humanoidOf()
 end
 
 --------------------------------------------------------------------
--- Камера «Ззовні / З кабіни»
+-- "Outside / Cockpit" camera
 --------------------------------------------------------------------
 local cockpit = false
 local look = Vector2.zero -- yaw, pitch
-local hidden = {}         -- частини, які ховаємо локально (LocalTransparencyModifier)
+local hidden = {}         -- parts hidden locally (LocalTransparencyModifier)
 local hiddenRefresh = 0
 local mouseLocked = false
 
@@ -176,7 +176,7 @@ local function setCockpit(on)
 		hidden = {}
 		setMouseLock(false)
 		camera.CameraType = Enum.CameraType.Custom
-		-- у польоті FlightClient сам наводить камеру на ракету; на стартовому столі — ми
+		-- in flight FlightClient points the camera at the rocket itself; on the launch table — we do
 		local rocket = findRocket()
 		if player:GetAttribute("InCapsule") and rocket and rocket.PrimaryPart then
 			camera.CameraSubject = rocket.PrimaryPart
@@ -197,8 +197,8 @@ local function onViewKey(_, state)
 	return Enum.ContextActionResult.Sink
 end
 
--- Камера кабіни: на висоті очей над кріслом, дивиться вздовж носа ракети.
--- Пріоритет Camera: тремтіння FlightClient (Camera + 1) додається поверх.
+-- Cockpit camera: at eye height above the seat, looking along the rocket nose.
+-- Camera priority: the FlightClient shake (Camera + 1) is added on top.
 RunService:BindToRenderStep("CapsuleCockpitCamera", Enum.RenderPriority.Camera.Value, function(dt)
 	if not cockpit then
 		return
@@ -211,7 +211,7 @@ RunService:BindToRenderStep("CapsuleCockpitCamera", Enum.RenderPriority.Camera.V
 		return
 	end
 
-	-- оглядання мишею з затиснутою ПКМ
+	-- look around with the mouse while holding RMB
 	if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
 		setMouseLock(true)
 		local d = UserInputService:GetMouseDelta()
@@ -228,7 +228,7 @@ RunService:BindToRenderStep("CapsuleCockpitCamera", Enum.RenderPriority.Camera.V
 		* CFrame.Angles(0, look.X, 0) * CFrame.Angles(look.Y, 0, 0)
 	camera.Focus = CFrame.new(eye)
 
-	-- свій персонаж і корпус капсули не затуляють огляд (інші гравці бачать усе як є)
+	-- your own character and the capsule body do not block the view (other players see everything as is)
 	hiddenRefresh += dt
 	if hiddenRefresh > 1 then
 		hiddenRefresh = 0
@@ -240,7 +240,7 @@ RunService:BindToRenderStep("CapsuleCockpitCamera", Enum.RenderPriority.Camera.V
 end)
 
 --------------------------------------------------------------------
--- Крісло: блок стрибка і клавіша V
+-- Seat: jump lock and the V key
 --------------------------------------------------------------------
 local function applyJumpLock()
 	local h = humanoidOf()
@@ -252,7 +252,7 @@ end
 local function onCapsuleChanged()
 	if player:GetAttribute("InCapsule") then
 		ContextActionService:BindActionAtPriority("CapsuleView", onViewKey, false, PRIORITY, Enum.KeyCode.V)
-		-- на стартовому столі камера дивиться на ракету, а не в спину персонажу
+		-- on the launch table the camera looks at the rocket, not at the character's back
 		local rocket = findRocket()
 		if not cockpit and rocket and rocket.PrimaryPart then
 			camera.CameraSubject = rocket.PrimaryPart
@@ -279,7 +279,7 @@ end)
 onCapsuleChanged()
 
 --------------------------------------------------------------------
--- Скафандр: ліхтарик [L], зняти [K], мікродвигуни (Space у повітрі)
+-- Spacesuit: headlamp [L], take off [K], thrusters (Space in the air)
 --------------------------------------------------------------------
 local function onSuitKey(_, state, input)
 	if state == Enum.UserInputState.Begin then
@@ -322,12 +322,12 @@ local function setJets(on)
 end
 
 --------------------------------------------------------------------
--- КРОК 3: вихід [E] і фізика EVA
+-- STEP 3: exit [E] and EVA physics
 --------------------------------------------------------------------
-local JUMP_HEIGHT = 9        -- studs: стрибок у низькій гравітації (повільний і довгий)
-local JET_ACCEL = 1.8        -- тяга ранця у «вагах» місцевої гравітації: > 1 — піднімає
-local JET_MAX_UP = 18        -- studs/с: стеля швидкості підйому на ранці
-local JET_PUSH = 22          -- studs/с²: поштовх уперед (куди йде персонаж)
+local JUMP_HEIGHT = 9        -- studs: a jump in low gravity (slow and long)
+local JET_ACCEL = 1.8        -- backpack thrust in units of local gravity: > 1 lifts you
+local JET_MAX_UP = 18        -- studs/s: max climb speed on the jetpack
+local JET_PUSH = 22          -- studs/s²: forward push (in the walking direction)
 local JET_MAX_SIDE = 28
 local PLANET_NAMES = { Moon = "MOON", Mars = "MARS" }
 
@@ -341,7 +341,7 @@ end
 local function refreshEVAHud()
 	local canExit = player:GetAttribute("InCapsule") == true and player:GetAttribute("CanEVA") == true
 	if canExit then
-		-- вищий пріоритет за FlightClient: E виводить з капсули замість крену
+		-- higher priority than FlightClient: E leaves the capsule instead of rolling
 		ContextActionService:BindActionAtPriority("EVAExit", onExitKey, false, PRIORITY, Enum.KeyCode.E)
 	else
 		ContextActionService:UnbindAction("EVAExit")
@@ -362,7 +362,7 @@ for _, name in ipairs({ "InCapsule", "CanEVA", "EVA", "EVAPlanet", "EVAGravity" 
 end
 refreshEVAHud()
 
--- Статус місії збору зразка (атрибути SamplePlanet / SampleStowed виставляє SampleCollectionMission)
+-- Sample mission status (attributes SamplePlanet / SampleStowed are set by SampleCollectionMission)
 local STATUS_COLLECTED = "SAMPLE COLLECTED — RETURN TO THE CAPSULE AND REFUEL THE ROCKET"
 local function rocketFuelFull()
 	local rocket = findRocket()
@@ -397,7 +397,7 @@ end
 refreshMission()
 
 --------------------------------------------------------------------
--- КРОК 5: кнопка «⛽ ISRU» і шкала синтезу палива (атрибути CanISRU / ISRUProgress)
+-- STEP 5: the "⛽ ISRU" button and the propellant synthesis bar (attributes CanISRU / ISRUProgress)
 --------------------------------------------------------------------
 local isruButton = Instance.new("TextButton")
 isruButton.Name = "ISRUButton"
@@ -469,7 +469,7 @@ for _, name in ipairs({ "CanISRU", "ISRUProgress" }) do
 end
 refreshISRU()
 
--- статус «баки повні» залежить від телеметрії ракети — оновлюємо раз на секунду
+-- the "tanks full" status depends on rocket telemetry — update once per second
 task.spawn(function()
 	while true do
 		task.wait(1)
@@ -479,8 +479,8 @@ task.spawn(function()
 	end
 end)
 
--- Низька гравітація: workspace.Gravity — земна; VectorForce знімає зайве так, щоб
--- ефективне g = workspace.Gravity · (gпланети / 9.81): Місяць ≈ ⅙, Марс ≈ ⅓ земної
+-- Low gravity: workspace.Gravity is Earth's; a VectorForce removes the excess so that
+-- the effective g = workspace.Gravity · (g_planet / 9.81): Moon ≈ ⅙, Mars ≈ ⅓ of Earth's
 local evaForce, evaAttachment, savedJump = nil, nil, nil
 local function clearEVAPhysics()
 	if evaForce then
@@ -537,8 +537,8 @@ RunService.Heartbeat:Connect(function()
 	h.JumpPower = math.sqrt(2 * gEff * JUMP_HEIGHT) -- v = √(2·g·h)
 
 	local mass = root.AssemblyMass
-	local accel = Vector3.new(0, workspace.Gravity - gEff, 0) -- компенсація зайвої земної гравітації
-	-- ранець: тяга вгору та в бік руху, поки є заряд
+	local accel = Vector3.new(0, workspace.Gravity - gEff, 0) -- cancels the excess Earth gravity
+	-- jetpack: thrust up and in the walking direction while there is charge
 	if want and (player:GetAttribute("SuitPower") or 0) > 0 then
 		local v = root.AssemblyLinearVelocity
 		if v.Y < JET_MAX_UP then

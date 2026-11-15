@@ -1,22 +1,22 @@
 --[[
-	PlanetaryRefuelSystem (ModuleScript, СЕРВЕР) — КРОК 5: дозаправка на планеті (NASA ISRU)
-	Місце: ServerScriptService > Modules > PlanetaryRefuelSystem
+	PlanetaryRefuelSystem (ModuleScript, SERVER) — STEP 5: refuelling on a planet (NASA ISRU)
+	Location: ServerScriptService > Modules > PlanetaryRefuelSystem
 
-	ISRU (In-Situ Resource Utilization) — паливо з місцевих ресурсів:
-	  Місяць: водяний лід → електроліз  2H₂O → 2H₂ + O₂  (рідкий кисень + водень)
-	  Марс:    реакція Сабатьє  CO₂ + 4H₂ → CH₄ + 2H₂O  (+ MOXIE: CO₂ → O₂, як на Perseverance)
+	ISRU (In-Situ Resource Utilization) — propellant made from local resources:
+	  Moon: water ice → electrolysis  2H₂O → 2H₂ + O₂  (liquid oxygen + hydrogen)
+	  Mars: Sabatier reaction  CO₂ + 4H₂ → CH₄ + 2H₂O  (+ MOXIE: CO₂ → O₂, as on Perseverance)
 
-	Станції — моделі ISRU_RefuelStation у зонах Місяця / Марса (атрибут Planet; деталі Terminal,
-	HoseNozzle з Attachment HoseStart, Screen з ISRUDisplay). Їх можна пересувати в Studio.
+	Stations are ISRU_RefuelStation models in the Moon / Mars zones (Planet attribute; parts Terminal,
+	HoseNozzle with Attachment HoseStart, Screen with ISRUDisplay). They can be moved in Studio.
 
-	Як заправитись:
-	  • ракета стоїть на поверхні (flight.landed) не далі RANGE studs від станції тієї ж планети;
-	  • астронавт у скафандрі підходить до термінала → [E] «ПРОТЯГНУТИ ШЛАНГ ISRU»,
-	    або кнопка «⛽ ISRU» у HUD (атрибут гравця CanISRU) — прямо з кабіни;
-	  • шланг (Beam) тягнеться від станції до бака активного ступеня, синтез 0% → 100% за REFUEL_TIME с
-	    відновлює FuelMass до FuelCapacity. Потім — зворотний старт (Shift / Z).
+	How to refuel:
+	  • the rocket stands on the surface (flight.landed) no farther than RANGE studs from a station of the same planet;
+	  • the astronaut in a spacesuit walks up to the terminal → [E] "CONNECT ISRU HOSE",
+	    or the "⛽ ISRU" button in the HUD (player attribute CanISRU) — right from the cockpit;
+	  • a hose (Beam) runs from the station to the active stage's tank, synthesis 0% → 100% over REFUEL_TIME s
+	    refills FuelMass to FuelCapacity. Then — the return launch (Shift / Z).
 
-	Атрибути гравця: CanISRU (bool), ISRUProgress (0…1, nil — не заправляється).
+	Player attributes: CanISRU (bool), ISRUProgress (0…1, nil — not refuelling).
 ]]
 
 local Players = game:GetService("Players")
@@ -26,10 +26,10 @@ local RunService = game:GetService("RunService")
 local PlanetZoneManager = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("PlanetZoneManager"))
 
 local ISRU = {}
-ISRU.notify = nil          -- function(player, text, isError) — виставляє FlightServer
-ISRU.getFlight = nil       -- function(player) -> flight — виставляє FlightServer
-ISRU.RANGE = 180           -- studs: ракета має стояти в посадковій зоні кратера біля станції
-ISRU.REFUEL_TIME = 7       -- с: синтез і заправка 0 → 100%
+ISRU.notify = nil          -- function(player, text, isError) — set by FlightServer
+ISRU.getFlight = nil       -- function(player) -> flight — set by FlightServer
+ISRU.RANGE = 180           -- studs: the rocket must stand in the crater landing zone near the station
+ISRU.REFUEL_TIME = 7       -- s: synthesis and refuelling 0 → 100%
 ISRU.PROMPT_DISTANCE = 10
 
 local PROCESS = {
@@ -53,7 +53,7 @@ local function setDisplay(st, text, color)
 	end
 end
 
--- Найбільша деталь активного ступеня = бак, до нього тягнемо шланг
+-- The largest part of the active stage = the tank, the hose goes to it
 local function tankPart(stage)
 	local best, vol = nil, 0
 	for _, p in ipairs(stage:GetDescendants()) do
@@ -67,7 +67,7 @@ local function tankPart(stage)
 	return best
 end
 
--- Найближча станція тієї ж планети, до якої дістає ракета
+-- The nearest station of the same planet within the rocket's reach
 local function stationFor(flight)
 	local pos = flight.core.Position
 	local _, planet = PlanetZoneManager.Locate(pos)
@@ -83,7 +83,7 @@ local function stationFor(flight)
 	return best, bestD, planet
 end
 
--- Чи можна заправити ракету зараз. Повертає ok, причина, станція, ступінь
+-- Whether the rocket can be refuelled now. Returns ok, reason, station, stage
 function ISRU.CanRefuel(player, flight, station)
 	if not flight or flight.ended or not flight.core.Parent then
 		return false, "No rocket to refuel."
@@ -125,7 +125,7 @@ function ISRU.CanRefuel(player, flight, station)
 end
 
 --------------------------------------------------------------------
--- Шланг
+-- Hose
 --------------------------------------------------------------------
 local function makeHose(station, stage, planet)
 	local st = stations[station]
@@ -136,7 +136,7 @@ local function makeHose(station, stage, planet)
 	local att = Instance.new("Attachment")
 	att.Name = "ISRUHoseEnd"
 	att.Parent = tank
-	-- точка на поверхні бака з боку станції
+	-- a point on the tank surface facing the station
 	local toStation = st.start.WorldPosition - tank.Position
 	local side = Vector3.new(toStation.X, 0, toStation.Z)
 	side = side.Magnitude > 0.1 and side.Unit or Vector3.xAxis
@@ -153,13 +153,13 @@ local function makeHose(station, stage, planet)
 	hose.LightInfluence = 1
 	hose.Segments = 24
 	hose.FaceCamera = true
-	-- провисання шланга (дуга вниз)
+	-- hose sag (downward arc)
 	local len = (att.WorldPosition - st.start.WorldPosition).Magnitude
 	hose.CurveSize0 = -len * 0.25
 	hose.CurveSize1 = len * 0.25
 	hose.Parent = st.start.Parent
 
-	-- світний потік палива всередині шланга
+	-- glowing propellant flow inside the hose
 	local flow = hose:Clone()
 	flow.Name = "ISRUFlow"
 	flow.Width0, flow.Width1 = 0.28, 0.28
@@ -202,7 +202,7 @@ local function finish(player, ok, text)
 			end
 		end)
 	end
-	-- шланг відчеплюється трохи згодом (відразу — якщо ракета злетіла)
+	-- the hose disconnects a little later (immediately if the rocket has taken off)
 	local fx = job.fx
 	task.delay(ok and 1.5 or 0, function()
 		if fx then
@@ -219,7 +219,7 @@ local function finish(player, ok, text)
 end
 
 --------------------------------------------------------------------
--- Запуск заправки
+-- Starting the refuel
 --------------------------------------------------------------------
 function ISRU.Start(player, station)
 	local flight = ISRU.getFlight and ISRU.getFlight(player)
@@ -248,7 +248,7 @@ function ISRU.Start(player, station)
 	return true
 end
 
--- Щопівсекунди з FlightServer: чи показувати кнопку «⛽ ISRU»
+-- Every half second from FlightServer: whether to show the "⛽ ISRU" button
 function ISRU.Update(player, flight)
 	local can = false
 	if not jobs[player] and flight.landed then
@@ -268,7 +268,7 @@ function ISRU.End(player)
 	end
 end
 
--- Процес заправки (плавна шкала 0 → 100%)
+-- Refuelling process (smooth bar 0 → 100%)
 RunService.Heartbeat:Connect(function(dt)
 	for player, job in pairs(jobs) do
 		local flight = job.flight
@@ -302,7 +302,7 @@ RunService.Heartbeat:Connect(function(dt)
 end)
 
 --------------------------------------------------------------------
--- Станції: підказка «ПРОТЯГНУТИ ШЛАНГ ISRU» [E] біля термінала
+-- Stations: the "CONNECT ISRU HOSE" [E] prompt at the terminal
 --------------------------------------------------------------------
 local function wire(model)
 	if stations[model] or not model:IsA("Model") then
